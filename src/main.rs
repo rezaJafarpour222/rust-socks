@@ -1,3 +1,5 @@
+pub mod protocol;
+
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
@@ -11,6 +13,7 @@ async fn main() {
         tokio::spawn(async move {
             let mut header = [0u8; 2];
             stream.read_exact(&mut header).await.unwrap();
+
             if header[0] != 0x05 {
                 println!("not a SOCKS5 client");
                 return;
@@ -25,6 +28,9 @@ async fn main() {
             } else {
                 stream.write_all(&[0x05, 0xff]).await.unwrap();
             }
+            let mut request_header = [0u8; 4];
+            stream.read_exact(&mut request_header).await.unwrap();
+            println!("request: {:02x?}", request_header);
         });
     }
 }
