@@ -6,6 +6,7 @@ pub enum SocksError {
     InvalidReserved(u8),
     UnsupportedAddressType(u8),
     InvalidDomain,
+    ConnectFailed,
 }
 impl From<std::io::Error> for SocksError {
     fn from(value: std::io::Error) -> Self {

@@ -1,9 +1,11 @@
 pub mod protocol;
 
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::{AsyncReadExt, AsyncWriteExt, copy_bidirectional},
     net::TcpListener,
 };
+
+use crate::protocol::socks_five::{connect_destination, read_request, send_failure, send_success};
 
 #[tokio::main]
 async fn main() {
@@ -20,17 +22,36 @@ async fn main() {
             }
             let mut methods = vec![0u8; header[1] as usize];
             stream.read_exact(&mut methods).await.unwrap();
-            println!("version:{}", header[0]);
-            println!("nmethods:{}", header[1]);
-            println!("methods:{:02x?}", methods);
             if methods.contains(&0x00) {
                 stream.write_all(&[0x05, 0x00]).await.unwrap();
             } else {
                 stream.write_all(&[0x05, 0xff]).await.unwrap();
             }
-            let mut request_header = [0u8; 4];
-            stream.read_exact(&mut request_header).await.unwrap();
-            println!("request: {:02x?}", request_header);
+            match read_request(&mut stream).await {
+                Ok(request) => {
+                    println!("received Socks 5 {request:?}");
+                    match connect_destination(&request.destination).await {
+                        Ok(mut remote_stream) => {
+                            send_success(&mut stream).await.unwrap();
+                            match copy_bidirectional(&mut stream, &mut remote_stream).await {
+                                Ok((from_client, from_server)) => {
+                                    println!(
+                                        "connection closed: client->server={} bytes, server->client={} bytes",
+                                        from_client, from_server
+                                    );
+                                }
+                                Err(err) => {
+                                    println!("proxy error:{err}")
+                                }
+                            }
+                        }
+                        Err(err) => send_failure(&mut stream, 0x01).await.unwrap(),
+                    }
+                }
+                Err(err) => {
+                    println!("Socks5 error{:?}", err);
+                }
+            }
         });
     }
 }
