@@ -7,7 +7,6 @@ use crate::protocol::{
     socks_error::SocksError,
     socks_five::{connect_destination, read_request, send_failure, send_success},
 };
-
 pub async fn proxy(stream: &mut TcpStream) -> Result<(), SocksError> {
     negotiate(stream).await?;
 
@@ -36,20 +35,32 @@ pub async fn proxy(stream: &mut TcpStream) -> Result<(), SocksError> {
     Ok(())
 }
 
+const SOCKS5_VERSION: u8 = 0x05;
+const NO_AUTH: u8 = 0x00;
+const NO_ACCEPTABLE_METHOD: u8 = 0xff;
 async fn negotiate(stream: &mut TcpStream) -> Result<(), SocksError> {
     let mut header = [0u8; 2];
-    stream.read_exact(&mut header).await.unwrap();
-    if header[0] != 0x05 {
-        println!("not a SOCKS5 client");
-        return Err(SocksError::InvalidVersion(header[0]));
+    stream.read_exact(&mut header).await?;
+
+    let version = header[0];
+    let method_count = header[1];
+
+    if version != SOCKS5_VERSION {
+        return Err(SocksError::InvalidVersion(version));
     }
-    let mut methods = vec![0u8; header[1] as usize];
-    stream.read_exact(&mut methods).await.unwrap();
-    if methods.contains(&0x00) {
-        stream.write_all(&[0x05, 0x00]).await?;
-    } else {
-        stream.write_all(&[0x05, 0xff]).await?;
-        return Err(SocksError::NoAcceptableMethod);
+
+    let mut methods = vec![0u8; method_count as usize];
+    stream.read_exact(&mut methods).await?;
+
+    if methods.contains(&NO_AUTH) {
+        stream.write_all(&[SOCKS5_VERSION, NO_AUTH]).await?;
+
+        return Ok(());
     }
-    Ok(())
+
+    stream
+        .write_all(&[SOCKS5_VERSION, NO_ACCEPTABLE_METHOD])
+        .await?;
+
+    Err(SocksError::NoAcceptableMethod)
 }

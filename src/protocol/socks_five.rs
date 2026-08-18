@@ -146,3 +146,28 @@ pub async fn send_failure(stream: &mut TcpStream, reply: u8) -> Result<(), Socks
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_socks5_version() {
+        assert!(parse_version(0x05).is_ok());
+    }
+
+    #[test]
+    fn rejects_other_versions() {
+        assert!(parse_version(0x04).is_err());
+    }
+
+    #[test]
+    fn accepts_connect_command() {
+        assert!(parse_command(0x01).is_ok());
+    }
+
+    #[test]
+    fn rejects_unsupported_command() {
+        assert!(parse_command(0x02).is_err());
+    }
+}
