@@ -152,22 +152,53 @@ mod tests {
     use super::*;
 
     #[test]
-    fn accepts_socks5_version() {
+    fn parse_valid_version() {
         assert!(parse_version(0x05).is_ok());
     }
 
     #[test]
-    fn rejects_other_versions() {
-        assert!(parse_version(0x04).is_err());
+    fn parse_invalid_version() {
+        let result = parse_version(0x04);
+
+        assert!(matches!(result, Err(SocksError::InvalidVersion(0x04))));
     }
 
     #[test]
-    fn accepts_connect_command() {
-        assert!(parse_command(0x01).is_ok());
+    fn parse_connect_command() {
+        assert!(matches!(parse_command(0x01), Ok(Command::Connect)));
     }
 
     #[test]
-    fn rejects_unsupported_command() {
-        assert!(parse_command(0x02).is_err());
+    fn parse_unsupported_command() {
+        let result = parse_command(0x02);
+
+        assert!(matches!(result, Err(SocksError::UnsupportedCommand(0x02))));
+    }
+
+    #[test]
+    fn parse_valid_reserved_byte() {
+        assert!(parse_reserved(0x00).is_ok());
+    }
+
+    #[test]
+    fn parse_invalid_reserved_byte() {
+        let result = parse_reserved(0x01);
+
+        assert!(matches!(result, Err(SocksError::InvalidReserved(0x01))));
+    }
+
+    #[test]
+    fn parse_ipv4_address_kind() {
+        assert!(matches!(parse_address_kind(0x01), Ok(AddressKind::Ipv4)));
+    }
+
+    #[test]
+    fn parse_domain_address_kind() {
+        assert!(matches!(parse_address_kind(0x03), Ok(AddressKind::Domain)));
+    }
+
+    #[test]
+    fn parse_ipv6_address_kind() {
+        assert!(matches!(parse_address_kind(0x04), Ok(AddressKind::Ipv6)));
     }
 }
