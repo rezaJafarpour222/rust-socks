@@ -7,6 +7,7 @@ pub enum SocksError {
     UnsupportedAddressType(u8),
     InvalidDomain,
     ConnectFailed,
+    NoAcceptableMethod,
 }
 impl From<std::io::Error> for SocksError {
     fn from(value: std::io::Error) -> Self {
