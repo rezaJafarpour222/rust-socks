@@ -1,4 +1,4 @@
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use tokio::net::{TcpStream, lookup_host};
@@ -110,7 +110,8 @@ pub async fn connect_destination(destination: &Destination) -> Result<TcpStream,
     match &destination.address {
         Address::Domain(domain) => {
             let addresses = lookup_host((domain.as_str(), destination.port)).await?;
-
+            // Dns Lookup
+            println!("AddressType {domain:?}");
             for address in addresses {
                 match TcpStream::connect(address).await {
                     Ok(stream) => return Ok(stream),
@@ -119,9 +120,21 @@ pub async fn connect_destination(destination: &Destination) -> Result<TcpStream,
             }
             Err(SocksError::ConnectFailed)
         }
-
-        _ => {
-            todo!("IPv4 and IPv6 later")
+        Address::Ipv4(address) => {
+            println!("AddressType {address:?}");
+            let v4_address = SocketAddr::new(std::net::IpAddr::V4(*address), destination.port);
+            match TcpStream::connect(v4_address).await {
+                Ok(stream) => Ok(stream),
+                Err(_) => Err(SocksError::ConnectFailed),
+            }
+        }
+        Address::Ipv6(address) => {
+            println!("AddressType {address:?}");
+            let v6_address = SocketAddr::new(std::net::IpAddr::V6(*address), destination.port);
+            match TcpStream::connect(v6_address).await {
+                Ok(stream) => Ok(stream),
+                Err(_) => Err(SocksError::ConnectFailed),
+            }
         }
     }
 }
