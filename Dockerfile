@@ -12,6 +12,6 @@ WORKDIR /app
 
 COPY --from=builder /app/target/release/rust-socks /app/rust-socks
 
-EXPOSE 1080
+EXPOSE 3000
 
 CMD ["/app/rust-socks"]
