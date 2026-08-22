@@ -3,6 +3,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use tokio::net::{TcpStream, lookup_host};
 
+use crate::cache;
 use crate::protocol::socks_error::SocksError;
 #[derive(Debug)]
 pub enum Command {
@@ -110,6 +111,7 @@ pub async fn connect_destination(destination: &Destination) -> Result<TcpStream,
     match &destination.address {
         Address::Domain(domain) => {
             let addresses = lookup_host((domain.as_str(), destination.port)).await?;
+
             // Dns Lookup
             println!("AddressType {domain:?}");
             for address in addresses {
