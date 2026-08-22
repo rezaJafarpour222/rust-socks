@@ -15,12 +15,17 @@ pub async fn proxy(stream: &mut TcpStream, dns_cache: &DnsCache) -> Result<(), S
 
     let request = read_request(stream).await?;
 
-    println!("received SOCKS5 {request:?}");
+    tracing::info!(
+        event = "request_begin",
+        "{:?}:{:?}",
+        request.destination.address,
+        request.destination.port
+    );
 
     let mut remote_stream = match connect_destination(&request.destination, dns_cache).await {
         Ok(stream) => stream,
         Err(err) => {
-            println!("connection failed: {err:?}");
+            tracing::info!(event = "connection_failed", "{:?}", err);
             send_failure(stream, 0x01).await?;
             return Ok(());
         }
@@ -30,9 +35,10 @@ pub async fn proxy(stream: &mut TcpStream, dns_cache: &DnsCache) -> Result<(), S
 
     let (from_client, from_server) = copy_bidirectional(stream, &mut remote_stream).await?;
 
-    println!(
-        "connection closed: client->server={} bytes, server->client={} bytes",
-        from_client, from_server
+    tracing::info!(
+        event = "request_finished",
+        from_client = from_client,
+        from_server = from_server
     );
 
     Ok(())

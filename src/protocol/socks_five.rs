@@ -4,8 +4,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use tokio::net::{TcpStream, lookup_host};
 
-use crate::cache::{self, DnsCache};
-use crate::protocol::socks_error::SocksError;
+use crate::{cache::DnsCache, protocol::socks_error::SocksError};
 #[derive(Debug)]
 pub enum Command {
     Connect,
@@ -117,10 +116,7 @@ pub async fn connect_destination(
             let started = Instant::now();
 
             let addresses = match dns_cache.get(domain) {
-                Some(addresses) => {
-                    println!("DNS cache hit: {domain}");
-                    addresses
-                }
+                Some(addresses) => addresses,
                 None => {
                     let addresses: Vec<IpAddr> = lookup_host((domain.as_str(), destination.port))
                         .await?
@@ -130,10 +126,9 @@ pub async fn connect_destination(
                     addresses
                 }
             };
-
-            println!(
-                "Dns lookup:{domain} {:.2}ms",
-                started.elapsed().as_secs_f64() * 1000.0
+            tracing::info!(
+                event = "dns_lookup_time",
+                time = started.elapsed().as_secs_f64() * 1000.0
             );
 
             for address in addresses {
@@ -148,7 +143,10 @@ pub async fn connect_destination(
             Err(SocksError::ConnectFailed)
         }
         Address::Ipv4(address) => {
-            println!("AddressType {address:?}");
+            tracing::info!(
+                event = "address_type",
+                address=%address
+            );
             let v4_address = SocketAddr::new(std::net::IpAddr::V4(*address), destination.port);
             match TcpStream::connect(v4_address).await {
                 Ok(stream) => Ok(stream),
@@ -156,7 +154,10 @@ pub async fn connect_destination(
             }
         }
         Address::Ipv6(address) => {
-            println!("AddressType {address:?}");
+            tracing::info!(
+                event = "address_type",
+                address=%address
+            );
             let v6_address = SocketAddr::new(std::net::IpAddr::V6(*address), destination.port);
             match TcpStream::connect(v6_address).await {
                 Ok(stream) => Ok(stream),
