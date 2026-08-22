@@ -11,7 +11,7 @@ async fn main() {
     tracing_subscriber::fmt::init();
 
     let listener = TcpListener::bind("0.0.0.0:3000").await.unwrap();
-    let dns_cache = Arc::new(DnsCache::new(Duration::from_hours(24), 10_000));
+    let dns_cache = Arc::new(DnsCache::new(Duration::from_secs(24 * 60 * 60), 10_000));
     loop {
         let (mut stream, _) = listener.accept().await.unwrap();
         let dns_cache = Arc::clone(&dns_cache);
