@@ -3,18 +3,21 @@ use tokio::{
     net::TcpStream,
 };
 
-use crate::protocol::{
-    socks_error::SocksError,
-    socks_five::{connect_destination, read_request, send_failure, send_success},
+use crate::{
+    cache::DnsCache,
+    protocol::{
+        socks_error::SocksError,
+        socks_five::{connect_destination, read_request, send_failure, send_success},
+    },
 };
-pub async fn proxy(stream: &mut TcpStream) -> Result<(), SocksError> {
+pub async fn proxy(stream: &mut TcpStream, dns_cache: &DnsCache) -> Result<(), SocksError> {
     negotiate(stream).await?;
 
     let request = read_request(stream).await?;
 
     println!("received SOCKS5 {request:?}");
 
-    let mut remote_stream = match connect_destination(&request.destination).await {
+    let mut remote_stream = match connect_destination(&request.destination, dns_cache).await {
         Ok(stream) => stream,
         Err(err) => {
             println!("connection failed: {err:?}");

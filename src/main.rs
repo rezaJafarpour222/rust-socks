@@ -1,17 +1,21 @@
 pub mod cache;
 pub mod protocol;
 
+use std::{sync::Arc, time::Duration};
+
 use tokio::net::TcpListener;
 
-use crate::protocol::handler::proxy;
+use crate::{cache::DnsCache, protocol::handler::proxy};
 
 #[tokio::main]
 async fn main() {
-    let listener = TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    let listener = TcpListener::bind("127.0.0.1:3000").await.unwrap();
+    let dns_cache = Arc::new(DnsCache::new(Duration::from_secs(60), 10_000));
     loop {
         let (mut stream, _) = listener.accept().await.unwrap();
+        let dns_cache = Arc::clone(&dns_cache);
         tokio::spawn(async move {
-            if let Err(err) = proxy(&mut stream).await {
+            if let Err(err) = proxy(&mut stream, &dns_cache).await {
                 println!("proxy error: {err:?}");
             }
         });

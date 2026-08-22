@@ -1,9 +1,10 @@
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::time::Instant;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use tokio::net::{TcpStream, lookup_host};
 
-use crate::cache;
+use crate::cache::{self, DnsCache};
 use crate::protocol::socks_error::SocksError;
 #[derive(Debug)]
 pub enum Command {
@@ -107,19 +108,43 @@ pub async fn read_request(stream: &mut TcpStream) -> Result<Request, SocksError>
     })
 }
 
-pub async fn connect_destination(destination: &Destination) -> Result<TcpStream, SocksError> {
+pub async fn connect_destination(
+    destination: &Destination,
+    dns_cache: &DnsCache,
+) -> Result<TcpStream, SocksError> {
     match &destination.address {
         Address::Domain(domain) => {
-            let addresses = lookup_host((domain.as_str(), destination.port)).await?;
+            let started = Instant::now();
 
-            // Dns Lookup
-            println!("AddressType {domain:?}");
+            let addresses = match dns_cache.get(domain) {
+                Some(addresses) => {
+                    println!("DNS cache hit: {domain}");
+                    addresses
+                }
+                None => {
+                    let addresses: Vec<IpAddr> = lookup_host((domain.as_str(), destination.port))
+                        .await?
+                        .map(|address| address.ip())
+                        .collect();
+                    dns_cache.insert(domain.clone(), addresses.clone());
+                    addresses
+                }
+            };
+
+            println!(
+                "Dns lookup:{domain} {:.2}ms",
+                started.elapsed().as_secs_f64() * 1000.0
+            );
+
             for address in addresses {
-                match TcpStream::connect(address).await {
+                let socket_address = SocketAddr::new(address, destination.port);
+
+                match TcpStream::connect(socket_address).await {
                     Ok(stream) => return Ok(stream),
                     Err(_) => continue,
                 }
             }
+
             Err(SocksError::ConnectFailed)
         }
         Address::Ipv4(address) => {

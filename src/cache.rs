@@ -1,39 +1,52 @@
 use std::{
     collections::HashMap,
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     sync::RwLock,
     time::{Duration, Instant},
 };
 
 pub struct CacheEntry {
-    adressess: Vec<SocketAddr>,
+    addresses: Vec<IpAddr>,
     expires_at: Instant,
 }
 pub struct DnsCache {
     entries: RwLock<HashMap<String, CacheEntry>>,
     ttl: Duration,
+    max_entries: usize,
 }
 impl DnsCache {
-    pub fn new(ttl: Duration) -> Self {
+    pub fn new(ttl: Duration, max_entries: usize) -> Self {
         Self {
             entries: RwLock::new(HashMap::new()),
             ttl,
+            max_entries,
         }
     }
-    pub fn get(&self, domain: &str) -> Option<Vec<SocketAddr>> {
+    pub fn get(&self, domain: &str) -> Option<Vec<IpAddr>> {
         let entries = self.entries.read().unwrap();
+
         let entry = entries.get(domain)?;
+
         if entry.expires_at <= Instant::now() {
             return None;
         }
-        Some(entry.adressess.clone())
+
+        Some(entry.addresses.clone())
     }
-    pub fn insert(&self, domain: String, adressess: Vec<SocketAddr>) {
+    pub fn insert(&self, domain: String, addresses: Vec<IpAddr>) {
         let entry = CacheEntry {
-            adressess,
+            addresses,
             expires_at: Instant::now() + self.ttl,
         };
+
         let mut entries = self.entries.write().unwrap();
+
+        if entries.len() >= self.max_entries {
+            if let Some(key) = entries.keys().next().cloned() {
+                entries.remove(&key);
+            }
+        }
+
         entries.insert(domain, entry);
     }
 }
@@ -46,15 +59,16 @@ mod tests {
 
     #[test]
     fn cache_miss() {
-        let cache = DnsCache::new(Duration::from_secs(60));
+        let cache = DnsCache::new(Duration::from_secs(60), 10_000);
 
         assert!(cache.get("example.com").is_none());
     }
+
     #[test]
     fn cache_hit() {
-        let cache = DnsCache::new(Duration::from_secs(60));
+        let cache = DnsCache::new(Duration::from_secs(60), 10_000);
 
-        let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34)), 443);
+        let address = IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34));
 
         cache.insert("example.com".to_string(), vec![address]);
 
@@ -62,11 +76,12 @@ mod tests {
 
         assert_eq!(result, Some(vec![address]));
     }
+
     #[test]
     fn cache_expires() {
-        let cache = DnsCache::new(Duration::from_millis(10));
+        let cache = DnsCache::new(Duration::from_millis(10), 10_000);
 
-        let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34)), 443);
+        let address = IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34));
 
         cache.insert("example.com".to_string(), vec![address]);
 
@@ -75,5 +90,19 @@ mod tests {
         std::thread::sleep(Duration::from_millis(20));
 
         assert!(cache.get("example.com").is_none());
+    }
+    #[test]
+    fn cache_shared() {
+        let cache = DnsCache::new(Duration::from_secs(60), 10_000);
+
+        let addresses = vec![
+            IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)),
+            IpAddr::V4(Ipv4Addr::new(5, 6, 7, 8)),
+        ];
+
+        cache.insert("example.com".to_string(), addresses.clone());
+
+        assert_eq!(cache.get("example.com"), Some(addresses.clone()));
+        assert_eq!(cache.get("example.com"), Some(addresses));
     }
 }
