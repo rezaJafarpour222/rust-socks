@@ -1,5 +1,7 @@
 use tokio::{
-    io::{AsyncReadExt as _, AsyncWriteExt as _, copy_bidirectional},
+    io::{
+        AsyncReadExt as _, AsyncWriteExt as _, copy_bidirectional, copy_bidirectional_with_sizes,
+    },
     net::TcpStream,
 };
 
@@ -33,7 +35,8 @@ pub async fn proxy(stream: &mut TcpStream, dns_cache: &DnsCache) -> Result<(), S
 
     send_success(stream).await?;
 
-    let (from_client, from_server) = copy_bidirectional(stream, &mut remote_stream).await?;
+    let (from_client, from_server) =
+        copy_bidirectional_with_sizes(stream, &mut remote_stream, 64 * 1024, 64 * 1024).await?;
 
     tracing::info!(
         event = "request_finished",
