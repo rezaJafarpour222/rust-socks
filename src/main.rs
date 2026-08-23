@@ -9,7 +9,7 @@ use crate::{cache::DnsCache, protocol::handler::proxy};
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
-
+    tracing::info!("proxy is running...");
     let listener = TcpListener::bind("0.0.0.0:3000").await.unwrap();
     let dns_cache = Arc::new(DnsCache::new(Duration::from_secs(24 * 60 * 60), 10_000));
     loop {
