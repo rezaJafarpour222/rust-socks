@@ -6,8 +6,9 @@ use tokio::{
 use crate::{
     cache::DnsCache,
     protocol::{
+        constants,
         socks_error::SocksError,
-        socks_five::{connect_destination, read_request, send_failure, send_success},
+        socks_five::{self, connect_destination, read_request, send_failure, send_success},
     },
 };
 pub async fn proxy(stream: &mut TcpStream, dns_cache: &DnsCache) -> Result<(), SocksError> {
@@ -26,7 +27,7 @@ pub async fn proxy(stream: &mut TcpStream, dns_cache: &DnsCache) -> Result<(), S
         Ok(stream) => stream,
         Err(err) => {
             tracing::info!(event = "connection_failed", "{:?}", err);
-            send_failure(stream, 0x01).await?;
+            send_failure(stream, constants::REPLY_GENERAL_FAILURE).await?;
             return Ok(());
         }
     };
@@ -46,9 +47,6 @@ pub async fn proxy(stream: &mut TcpStream, dns_cache: &DnsCache) -> Result<(), S
     Ok(())
 }
 
-const SOCKS5_VERSION: u8 = 0x05;
-const NO_AUTH: u8 = 0x00;
-const NO_ACCEPTABLE_METHOD: u8 = 0xff;
 async fn negotiate(stream: &mut TcpStream) -> Result<(), SocksError> {
     let mut header = [0u8; 2];
     stream.read_exact(&mut header).await?;
@@ -56,22 +54,62 @@ async fn negotiate(stream: &mut TcpStream) -> Result<(), SocksError> {
     let version = header[0];
     let method_count = header[1];
 
-    if version != SOCKS5_VERSION {
+    if version != constants::SOCKS5_VERSION {
         return Err(SocksError::InvalidVersion(version));
     }
 
     let mut methods = vec![0u8; method_count as usize];
     stream.read_exact(&mut methods).await?;
 
-    if methods.contains(&NO_AUTH) {
-        stream.write_all(&[SOCKS5_VERSION, NO_AUTH]).await?;
+    if methods.contains(&constants::USERNAME_PASSWORD) {
+        stream
+            .write_all(&[constants::SOCKS5_VERSION, constants::USERNAME_PASSWORD])
+            .await?;
 
+        return authenticate(stream).await;
+    }
+
+    stream
+        .write_all(&[constants::SOCKS5_VERSION, constants::NO_ACCEPTABLE_METHOD])
+        .await?;
+
+    Err(SocksError::NoAcceptableMethod)
+}
+
+async fn authenticate(stream: &mut TcpStream) -> Result<(), SocksError> {
+    let mut version = [0u8; 1];
+    stream.read_exact(&mut version).await?;
+    if version[0] != constants::AUTH_VERSION {
+        stream
+            .write_all(&[constants::AUTH_VERSION, constants::AUTH_FAILURE])
+            .await?;
+        return Err(SocksError::AuthenticationFailed);
+    }
+
+    let mut username_len = [0u8; 1];
+    stream.read_exact(&mut username_len).await?;
+    let mut username = vec![0u8; username_len[0] as usize];
+    stream.read_exact(&mut username).await?;
+
+    let mut password_len = [0u8; 1];
+    stream.read_exact(&mut password_len).await?;
+    let mut password = vec![0u8; password_len[0] as usize];
+    stream.read_exact(&mut password).await?;
+
+    let username = String::from_utf8_lossy(&username);
+    let password = String::from_utf8_lossy(&password);
+
+    let valid = username == "admin" && password == "password";
+    if valid {
+        stream
+            .write_all(&[constants::AUTH_VERSION, constants::AUTH_SUCCESS])
+            .await?;
         return Ok(());
     }
 
     stream
-        .write_all(&[SOCKS5_VERSION, NO_ACCEPTABLE_METHOD])
+        .write_all(&[constants::AUTH_VERSION, constants::AUTH_FAILURE])
         .await?;
 
-    Err(SocksError::NoAcceptableMethod)
+    Err(SocksError::AuthenticationFailed)
 }

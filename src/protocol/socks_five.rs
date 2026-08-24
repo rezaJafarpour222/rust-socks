@@ -1,10 +1,89 @@
+//NOTE: SOCKS5 Handshake
+//Client
+// +----+----------+----------+
+// |VER | NMETHODS | METHODS  |
+// +----+----------+----------+
+// | 1  |    1     | 1..255   |
+// +----+----------+----------+
+// 05 02 00 02 => Version 5(05),2 authentication method(02) methods:[no authentication (00),USERNAME_PASSWORD(02)]
+// -------------------------------------------------------------------------------------------------------------------
+// Server
+// +----+--------+
+// |VER | METHOD |
+// +----+--------+
+// | 1  |   1    |
+// +----+--------+
+// 05 02 => Version 5(05),USERNAME_PASSWORD authentication(02)
+
+//NOTE: SOCKS5 Authentication
+// Client
+// +----+------+----------+------+----------+
+// |VER | ULEN |  UNAME   | PLEN |  PASSWD  |
+// +----+------+----------+------+----------+
+// | 1  |  1   | 1..255   |  1   | 1..255   |
+// +----+------+----------+------+----------+
+// 01 05 alice 08 secret => auth version(01), username_length(05), username(alice), pass_length(08), password(secret)
+// -------------------------------------------------------------------------------------------------------------------
+// Server
+// +----+--------+
+// |VER | STATUS |
+// +----+--------+
+// | 1  |   1    |
+// +----+--------+
+// Success: 01 00, Failure: 01 01
+
+//NOTE:SOCKS Reqeust
+// Client
+// +----+-----+-------+------+----------+------+
+// |VER | CMD |  RSV  | ATYP | DST.ADDR | PORT |
+// +----+-----+-------+------+----------+------+
+// | 1  |  1  |  1    |  1   | Variable |  2   |
+// +----+-----+-------+------+----------+------+
+// Ver:05, ,RSV: reserved,must be 00
+// CMD:command[Connect:01]
+// ATYP:address_type(ipv4,ipv6,domain)
+// DST.ADDR:destination address
+// PORT:destination port
+// -------------------------------------------------------------------------------------------------------------------
+// Server
+// +----+-----+-------+------+----------+------+
+// |VER | REP |  RSV  | ATYP | BND.ADDR | BND.PORT |
+// +----+-----+-------+------+----------+------+
+// | 1  |  1  |  1    |  1   | Variable |  2   |
+// +----+-----+-------+------+----------+------+
+// rep:SOCKS server failue [00:succeded,01..08:errors]
+
+//NOTE:SOCKS5 ATYP Interperetation
+// ATYP = 04
+// +----+----------+
+// |ATYP| IPv6     |
+// +----+----------+
+// | 04 | 16 bytes |
+// +----+----------+
+// -------------------------------------------------------------------------------------------------------------------
+// ATYP = 01
+// +----+----------+
+// |ATYP| IPv4     |
+// +----+----------+
+// | 01 | 4 bytes  |
+// +----+----------+
+// -------------------------------------------------------------------------------------------------------------------
+// ATYP = 03
+//
+// +----+------+----------+
+// |ATYP| LEN  | DOMAIN   |
+// +----+------+----------+
+// | 03 |  1   | Variable |
+// +----+------+----------+
+
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::time::Instant;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
 use tokio::net::{TcpStream, lookup_host};
 
+use crate::protocol::constants;
 use crate::{cache::DnsCache, protocol::socks_error::SocksError};
+
 #[derive(Debug)]
 pub enum Command {
     Connect,
@@ -38,29 +117,30 @@ pub struct Request {
 }
 
 fn parse_command(value: u8) -> Result<Command, SocksError> {
+    const CONNECT_COMMAND: u8 = 0x01;
     match value {
-        0x01 => Ok(Command::Connect),
+        CONNECT_COMMAND => Ok(Command::Connect),
         value => Err(SocksError::UnsupportedCommand(value)),
     }
 }
 
 fn parse_version(value: u8) -> Result<(), SocksError> {
     match value {
-        0x05 => Ok(()),
+        constants::SOCKS5_VERSION => Ok(()),
         value => Err(SocksError::InvalidVersion(value)),
     }
 }
 fn parse_reserved(value: u8) -> Result<(), SocksError> {
     match value {
-        0x00 => Ok(()),
+        constants::RESERVED => Ok(()),
         value => Err(SocksError::InvalidReserved(value)),
     }
 }
 fn parse_address_kind(value: u8) -> Result<AddressKind, SocksError> {
     match value {
-        0x01 => Ok(AddressKind::Ipv4),
-        0x03 => Ok(AddressKind::Domain),
-        0x04 => Ok(AddressKind::Ipv6),
+        constants::ADDRESS_TYPE_IPV4 => Ok(AddressKind::Ipv4),
+        constants::ADDRESS_TYPE_DOMAIN => Ok(AddressKind::Domain),
+        constants::ADDRESS_TYPE_IPV6 => Ok(AddressKind::Ipv6),
         value => Err(SocksError::UnsupportedAddressType(value)),
     }
 }
@@ -167,23 +247,37 @@ pub async fn connect_destination(
     }
 }
 
+const SUCCESS_REPLY: [u8; 10] = [
+    constants::SOCKS5_VERSION,
+    constants::REPLY_SUCCEEDED,
+    constants::RESERVED,
+    constants::ADDRESS_TYPE_IPV4,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+];
 pub async fn send_success(stream: &mut TcpStream) -> Result<(), SocksError> {
-    stream
-        .write_all(&[
-            0x05, // VER
-            0x00, // REP = succeeded
-            0x00, // RSV
-            0x01, // ATYP = IPv4
-            0x00, 0x00, 0x00, 0x00, // BND.ADDR
-            0x00, 0x00, // BND.PORT
-        ])
-        .await?;
+    stream.write_all(&SUCCESS_REPLY).await?;
     Ok(())
 }
 pub async fn send_failure(stream: &mut TcpStream, reply: u8) -> Result<(), SocksError> {
-    stream
-        .write_all(&[0x05, reply, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
-        .await?;
+    let response = [
+        constants::SOCKS5_VERSION,
+        reply,
+        constants::RESERVED,
+        constants::ADDRESS_TYPE_IPV4,
+        constants::EMPTY_IPV4[0],
+        constants::EMPTY_IPV4[1],
+        constants::EMPTY_IPV4[2],
+        constants::EMPTY_IPV4[3],
+        constants::EMPTY_PORT[0],
+        constants::EMPTY_PORT[1],
+    ];
+
+    stream.write_all(&response).await?;
 
     Ok(())
 }
@@ -194,7 +288,7 @@ mod tests {
 
     #[test]
     fn parse_valid_version() {
-        assert!(parse_version(0x05).is_ok());
+        assert!(parse_version(constants::SOCKS5_VERSION).is_ok());
     }
 
     #[test]
