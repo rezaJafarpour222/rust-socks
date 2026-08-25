@@ -1,11 +1,12 @@
 pub mod cache;
+pub mod handler;
 pub mod protocol;
 
 use std::{sync::Arc, time::Duration};
 
 use tokio::net::TcpListener;
 
-use crate::{cache::DnsCache, protocol::handler::proxy};
+use crate::{cache::DnsCache, handler::proxy};
 const CACHE_DURATION: u64 = 24 * 60 * 60;
 const CACHE_ENTRY_LIMIT: usize = 10_000;
 #[tokio::main]

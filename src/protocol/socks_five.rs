@@ -76,13 +76,12 @@
 // | 03 |  1   | Variable |
 // +----+------+----------+
 
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::time::Instant;
+use std::net::{Ipv4Addr, Ipv6Addr};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpStream, lookup_host};
+use tokio::net::TcpStream;
 
 use crate::protocol::constants;
-use crate::{cache::DnsCache, protocol::socks_error::SocksError};
+use crate::protocol::socks_error::SocksError;
 
 #[derive(Debug)]
 pub enum Command {
@@ -185,66 +184,6 @@ pub async fn read_request(stream: &mut TcpStream) -> Result<Request, SocksError>
         command,
         destination: Destination { address, port },
     })
-}
-
-pub async fn connect_destination(
-    destination: &Destination,
-    dns_cache: &DnsCache,
-) -> Result<TcpStream, SocksError> {
-    match &destination.address {
-        Address::Domain(domain) => {
-            let started = Instant::now();
-
-            let addresses = match dns_cache.get(domain) {
-                Some(addresses) => addresses,
-                None => {
-                    let addresses: Vec<IpAddr> = lookup_host((domain.as_str(), destination.port))
-                        .await?
-                        .map(|address| address.ip())
-                        .collect();
-                    dns_cache.insert(domain.clone(), addresses.clone());
-                    addresses
-                }
-            };
-            tracing::info!(
-                event = "dns_lookup_time",
-                time = started.elapsed().as_secs_f64() * 1000.0
-            );
-
-            for address in addresses {
-                let socket_address = SocketAddr::new(address, destination.port);
-
-                match TcpStream::connect(socket_address).await {
-                    Ok(stream) => return Ok(stream),
-                    Err(_) => continue,
-                }
-            }
-
-            Err(SocksError::ConnectFailed)
-        }
-        Address::Ipv4(address) => {
-            tracing::info!(
-                event = "address_type",
-                address=%address
-            );
-            let v4_address = SocketAddr::new(std::net::IpAddr::V4(*address), destination.port);
-            match TcpStream::connect(v4_address).await {
-                Ok(stream) => Ok(stream),
-                Err(_) => Err(SocksError::ConnectFailed),
-            }
-        }
-        Address::Ipv6(address) => {
-            tracing::info!(
-                event = "address_type",
-                address=%address
-            );
-            let v6_address = SocketAddr::new(std::net::IpAddr::V6(*address), destination.port);
-            match TcpStream::connect(v6_address).await {
-                Ok(stream) => Ok(stream),
-                Err(_) => Err(SocksError::ConnectFailed),
-            }
-        }
-    }
 }
 
 const SUCCESS_REPLY: [u8; 10] = [
