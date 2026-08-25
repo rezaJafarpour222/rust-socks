@@ -8,25 +8,17 @@ use crate::{
     protocol::{
         constants,
         socks_error::SocksError,
-        socks_five::{self, connect_destination, read_request, send_failure, send_success},
+        socks_five::{connect_destination, read_request, send_failure, send_success},
     },
 };
 pub async fn proxy(stream: &mut TcpStream, dns_cache: &DnsCache) -> Result<(), SocksError> {
     negotiate(stream).await?;
-
+    const BUFFER_SIZE: usize = 64 * 1024;
     let request = read_request(stream).await?;
-
-    tracing::info!(
-        event = "request_begin",
-        "{:?}:{:?}",
-        request.destination.address,
-        request.destination.port
-    );
 
     let mut remote_stream = match connect_destination(&request.destination, dns_cache).await {
         Ok(stream) => stream,
-        Err(err) => {
-            tracing::info!(event = "connection_failed", "{:?}", err);
+        Err(_) => {
             send_failure(stream, constants::REPLY_GENERAL_FAILURE).await?;
             return Ok(());
         }
@@ -35,14 +27,8 @@ pub async fn proxy(stream: &mut TcpStream, dns_cache: &DnsCache) -> Result<(), S
     send_success(stream).await?;
     stream.set_nodelay(true)?;
     remote_stream.set_nodelay(true)?;
-    let (from_client, from_server) =
-        copy_bidirectional_with_sizes(stream, &mut remote_stream, 64 * 1024, 64 * 1024).await?;
-
-    tracing::info!(
-        event = "request_finished",
-        from_client = from_client,
-        from_server = from_server
-    );
+    let (_, _) =
+        copy_bidirectional_with_sizes(stream, &mut remote_stream, BUFFER_SIZE, BUFFER_SIZE).await?;
 
     Ok(())
 }
@@ -60,6 +46,7 @@ async fn negotiate(stream: &mut TcpStream) -> Result<(), SocksError> {
 
     let mut methods = vec![0u8; method_count as usize];
     stream.read_exact(&mut methods).await?;
+    tracing::info!(event = "socks_handshake", methods = ?methods);
 
     if methods.contains(&constants::USERNAME_PASSWORD) {
         stream
@@ -99,11 +86,12 @@ async fn authenticate(stream: &mut TcpStream) -> Result<(), SocksError> {
     let username = String::from_utf8_lossy(&username);
     let password = String::from_utf8_lossy(&password);
 
-    let valid = username == "admin" && password == "password";
+    let valid = check_user(&username, &password);
     if valid {
         stream
             .write_all(&[constants::AUTH_VERSION, constants::AUTH_SUCCESS])
             .await?;
+        tracing::info!(event = "AUTH_SUCCESS", username = ?username);
         return Ok(());
     }
 
@@ -112,4 +100,11 @@ async fn authenticate(stream: &mut TcpStream) -> Result<(), SocksError> {
         .await?;
 
     Err(SocksError::AuthenticationFailed)
+}
+
+pub fn check_user(username: &str, password: &str) -> bool {
+    if username == "reza" && password == "SDSEWwew4SckkjSA_%" {
+        return true;
+    }
+    false
 }
