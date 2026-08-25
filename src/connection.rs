@@ -77,7 +77,7 @@ async fn negotiate(stream: &mut TcpStream) -> Result<(), SocksError> {
 
     stream.read_exact(&mut methods).await?;
 
-    tracing::info!(
+    tracing::debug!(
         event = "socks_handshake",
         methods = ?methods,
     );
