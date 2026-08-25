@@ -9,6 +9,7 @@ pub enum SocksError {
     ConnectFailed,
     AuthenticationFailed,
     NoAcceptableMethod,
+    TimeOut,
 }
 impl From<std::io::Error> for SocksError {
     fn from(value: std::io::Error) -> Self {
