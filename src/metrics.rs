@@ -95,9 +95,9 @@ pub async fn update_rates(metrics: Arc<Metrics>) {
         metrics.set_download_rate(download_rate);
 
         println!(
-            "Upload: {:.2} MB/s | Download: {:.2} MB/s| Active Connections: {} | TotalConnection: {} | Total Upload: {:.2} MB/s |Total Download: {:.2} MB/s",
-            upload_rate as f64 / 1024.0 / 1024.0,
-            download_rate as f64 / 1024.0 / 1024.0,
+            "Upload: {:.2} kB/s | Download: {:.2} kB/s| Active Connections: {} | TotalConnection: {} | Total Upload: {:.2} MB/s |Total Download: {:.2} MB/s",
+            upload_rate as f64 / 1024.0,
+            download_rate as f64 / 1024.0,
             metrics.active_connection(),
             metrics.total_connection(),
             metrics.uploaded() as f64 / 1024.0 / 1024.0,
