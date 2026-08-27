@@ -8,9 +8,8 @@ pub struct Metrics {
 
     bytes_uploaded: AtomicU64,
     bytes_downloaded: AtomicU64,
-
-    upload_rate: AtomicU64,
-    download_rate: AtomicU64,
+    dns_cache_hit: AtomicU64,
+    dns_cache_miss: AtomicU64,
 }
 
 impl Metrics {
@@ -21,9 +20,8 @@ impl Metrics {
 
             bytes_uploaded: AtomicU64::new(0),
             bytes_downloaded: AtomicU64::new(0),
-
-            upload_rate: AtomicU64::new(0),
-            download_rate: AtomicU64::new(0),
+            dns_cache_hit: AtomicU64::new(0),
+            dns_cache_miss: AtomicU64::new(0),
         }
     }
 
@@ -35,6 +33,14 @@ impl Metrics {
         self.bytes_downloaded.fetch_add(bytes, Ordering::Relaxed);
     }
 
+    pub fn add_dns_cache_hit(&self) {
+        self.dns_cache_hit.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn add_dns_cache_miss(&self) {
+        self.dns_cache_miss.fetch_add(1, Ordering::Relaxed);
+    }
+
     pub fn uploaded(&self) -> u64 {
         self.bytes_uploaded.load(Ordering::Relaxed)
     }
@@ -43,21 +49,6 @@ impl Metrics {
         self.bytes_downloaded.load(Ordering::Relaxed)
     }
 
-    pub fn set_upload_rate(&self, rate: u64) {
-        self.upload_rate.store(rate, Ordering::Relaxed);
-    }
-
-    pub fn set_download_rate(&self, rate: u64) {
-        self.download_rate.store(rate, Ordering::Relaxed);
-    }
-
-    pub fn upload_rate(&self) -> u64 {
-        self.upload_rate.load(Ordering::Relaxed)
-    }
-
-    pub fn download_rate(&self) -> u64 {
-        self.download_rate.load(Ordering::Relaxed)
-    }
     pub fn add_connection(&self) {
         self.total_connections.fetch_add(1, Ordering::Relaxed);
         self.active_connections.fetch_add(1, Ordering::Relaxed);
@@ -74,40 +65,30 @@ impl Metrics {
     pub fn total_connection(&self) -> usize {
         self.total_connections.load(Ordering::Relaxed)
     }
+
+    pub fn total_dns_cache_hit(&self) -> u64 {
+        self.dns_cache_hit.load(Ordering::Relaxed)
+    }
+
+    pub fn total_dns_cache_miss(&self) -> u64 {
+        self.dns_cache_miss.load(Ordering::Relaxed)
+    }
 }
 
-pub async fn update_rates(metrics: Arc<Metrics>) {
+pub async fn print_metrics(metrics: Arc<Metrics>) {
     let mut timer = interval(Duration::from_secs(1));
-
-    let mut last_uploaded = 0;
-    let mut last_downloaded = 0;
 
     loop {
         timer.tick().await;
 
-        let uploaded = metrics.uploaded();
-        let downloaded = metrics.downloaded();
-
-        let upload_rate = uploaded - last_uploaded;
-        let download_rate = downloaded - last_downloaded;
-
-        metrics.set_upload_rate(upload_rate);
-        metrics.set_download_rate(download_rate);
-
         println!(
-            "Upload: {:.2} kB/s | Download: {:.2} kB/s| Active Connections: {} | TotalConnection: {} | Total Upload: {:.2} MB/s |Total Download: {:.2} MB/s",
-            upload_rate as f64 / 1024.0,
-            download_rate as f64 / 1024.0,
+            "Dns Cache Hits/Miss:{}/{} |Active Connections: {} | TotalConnection: {} | Total Upload: {:.2} MB/s |Total Download: {:.2} MB/s",
+            metrics.total_dns_cache_hit(),
+            metrics.total_dns_cache_miss(),
             metrics.active_connection(),
             metrics.total_connection(),
             metrics.uploaded() as f64 / 1024.0 / 1024.0,
             metrics.downloaded() as f64 / 1024.0 / 1024.0
         );
-
-        use std::io::{self, Write};
-        io::stdout().flush().unwrap();
-
-        last_uploaded = uploaded;
-        last_downloaded = downloaded;
     }
 }

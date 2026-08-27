@@ -34,20 +34,21 @@ pub async fn proxy(
 
     let request = read_request(stream).await?;
 
-    let mut remote_stream = match connect_destination(&request.destination, dns_cache).await {
-        Ok(stream) => stream,
+    let mut remote_stream =
+        match connect_destination(&request.destination, dns_cache, &metrics).await {
+            Ok(stream) => stream,
 
-        Err(_) => {
-            // tracing::warn!(
-            //     event = "connection_failed",
-            //     error = ?err,
-            // );
+            Err(_) => {
+                // tracing::warn!(
+                //     event = "connection_failed",
+                //     error = ?err,
+                // );
 
-            send_failure(stream, constants::REPLY_GENERAL_FAILURE).await?;
+                send_failure(stream, constants::REPLY_GENERAL_FAILURE).await?;
 
-            return Ok(());
-        }
-    };
+                return Ok(());
+            }
+        };
 
     send_success(stream).await?;
 
@@ -169,12 +170,13 @@ pub fn check_user(username: &str, password: &str) -> bool {
 pub async fn connect_destination(
     destination: &Destination,
     dns_cache: &DnsCache,
+    metrics: &Metrics,
 ) -> Result<TcpStream, SocksError> {
     match &destination.address {
         Address::Domain(domain) => {
             // let started = Instant::now();
 
-            let addresses = dns_lookup(domain, destination.port, dns_cache).await?;
+            let addresses = dns_lookup(domain, destination.port, dns_cache, &metrics).await?;
 
             // tracing::debug!(
             //     event = "dns_lookup_time",
@@ -250,11 +252,16 @@ async fn dns_lookup(
     domain: &String,
     port: u16,
     dns_cache: &DnsCache,
+    metrics: &Metrics,
 ) -> Result<Vec<IpAddr>, Error> {
     let addresses = match dns_cache.get(domain) {
-        Some(addresses) => addresses,
+        Some(addresses) => {
+            metrics.add_dns_cache_hit();
+            addresses
+        }
 
         None => {
+            metrics.add_dns_cache_miss();
             let addresses: Vec<IpAddr> = lookup_host((domain.as_str(), port))
                 .await?
                 .map(|address| address.ip())

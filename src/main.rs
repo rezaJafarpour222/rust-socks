@@ -10,7 +10,7 @@ use tokio::net::TcpListener;
 use crate::{
     cache::DnsCache,
     connection::proxy,
-    metrics::{Metrics, update_rates},
+    metrics::{Metrics, print_metrics},
 };
 const CACHE_DURATION: u64 = 24 * 60 * 60;
 const CACHE_ENTRY_LIMIT: usize = 10_000;
@@ -30,7 +30,7 @@ async fn main() {
     //begin metric calculator background service
     let metric_clone = Arc::clone(&metrics);
     tokio::spawn(async move {
-        update_rates(metric_clone).await;
+        print_metrics(metric_clone).await;
     });
     //end metric calcualtor background service
     loop {
