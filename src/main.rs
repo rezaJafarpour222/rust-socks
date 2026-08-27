@@ -38,8 +38,8 @@ async fn main() {
         let dns_cache = Arc::clone(&dns_cache);
         let metrics = Arc::clone(&metrics);
         tokio::spawn(async move {
-            if let Err(err) = proxy(&mut stream, &dns_cache, &metrics).await {
-                tracing::error!("{:?}", err)
+            if let Err(_) = proxy(&mut stream, &dns_cache, &metrics).await {
+                // tracing::error!("{:?}", err)
             }
         });
     }
