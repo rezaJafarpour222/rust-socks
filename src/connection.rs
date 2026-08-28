@@ -1,7 +1,7 @@
 use std::{
     io::Error,
     net::{IpAddr, SocketAddr},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use tokio::{
@@ -35,14 +35,11 @@ pub async fn proxy(
     let request = read_request(stream).await?;
 
     let mut remote_stream =
-        match connect_destination(&request.destination, dns_cache, &metrics).await {
+        match connect_destination(&request.destination, dns_cache, metrics).await {
             Ok(stream) => stream,
 
-            Err(_) => {
-                // tracing::warn!(
-                //     event = "connection_failed",
-                //     error = ?err,
-                // );
+            Err(err) => {
+                tracing::error!(service = "socks5", error = ?err);
 
                 send_failure(stream, constants::REPLY_GENERAL_FAILURE).await?;
 
@@ -61,6 +58,7 @@ pub async fn proxy(
         copy_bidirectional_with_sizes(stream, &mut remote_stream, BUFFER_SIZE, BUFFER_SIZE).await?;
 
     // tracing::debug!(
+    //     service = "socks",
     //     event = "request_finished",
     //     from_client = from_client,
     //     from_server = from_server,
@@ -90,6 +88,7 @@ async fn negotiate(stream: &mut TcpStream) -> Result<(), SocksError> {
     stream.read_exact(&mut methods).await?;
 
     // tracing::debug!(
+    //     service="socks5",
     //     event = "socks_handshake",
     //     methods = ?methods,
     // );
@@ -149,6 +148,7 @@ async fn authenticate(stream: &mut TcpStream) -> Result<(), SocksError> {
             .await?;
 
         // tracing::info!(
+        //     service="socks5",
         //     event = "auth_success",
         //     username = %username,
         // );
@@ -179,6 +179,7 @@ pub async fn connect_destination(
             let addresses = dns_lookup(domain, destination.port, dns_cache, &metrics).await?;
 
             // tracing::debug!(
+            //     service="socks5",
             //     event = "dns_lookup_time",
             //     time_ms = started.elapsed().as_secs_f64() * 1000.0,
             // );
@@ -188,6 +189,7 @@ pub async fn connect_destination(
 
         Address::Ipv4(address) => {
             // tracing::debug!(
+            //     service="socks5",
             //     event = "address_type",
             //     address = %address,
             // );
@@ -199,6 +201,7 @@ pub async fn connect_destination(
 
         Address::Ipv6(address) => {
             // tracing::debug!(
+            //     service="socks5",
             //     event = "address_type",
             //     address = %address,
             // );
@@ -212,6 +215,7 @@ pub async fn connect_destination(
 
 async fn connect_with_timeout(address: SocketAddr) -> Result<TcpStream, SocksError> {
     // tracing::debug!(
+    //     service="socks5",
     //     event = "connection_attempt",
     //     address = %address,
     // );
@@ -219,6 +223,7 @@ async fn connect_with_timeout(address: SocketAddr) -> Result<TcpStream, SocksErr
     match tokio::time::timeout(CONNECTION_TIMEOUT, TcpStream::connect(address)).await {
         Ok(Ok(stream)) => {
             // tracing::info!(
+            //     service="socks5",
             //     event = "connection_success",
             //     address = %address,
             // );
@@ -228,6 +233,7 @@ async fn connect_with_timeout(address: SocketAddr) -> Result<TcpStream, SocksErr
 
         Ok(Err(_)) => {
             // tracing::warn!(
+            //     service="socks5",
             //     event = "connection_failed",
             //     address = %address,
             //     error = %err,
@@ -238,6 +244,7 @@ async fn connect_with_timeout(address: SocketAddr) -> Result<TcpStream, SocksErr
 
         Err(_) => {
             // tracing::warn!(
+            //     service="socks5",
             //     event = "connection_timeout",
             //     address = %address,
             //     timeout_ms = CONNECTION_TIMEOUT.as_millis(),
@@ -290,6 +297,7 @@ pub async fn happy_eyeballs(addresses: Vec<IpAddr>, port: u16) -> Result<TcpStre
             let socket_addr = SocketAddr::new(address, port);
 
             // tracing::debug!(
+            //     service="socks5",
             //     event = "happy_eyeballs_attempt",
             //     delay_ms = delay.as_millis(),
             // );
@@ -308,6 +316,7 @@ pub async fn happy_eyeballs(addresses: Vec<IpAddr>, port: u16) -> Result<TcpStre
 
             Ok(Err(_)) => {
                 // tracing::debug!(
+                //     service="socks5",
                 //     event = "happy_eyeballs_failed",
                 //     error = ?err,
                 // );
@@ -315,6 +324,7 @@ pub async fn happy_eyeballs(addresses: Vec<IpAddr>, port: u16) -> Result<TcpStre
 
             Err(_) => {
                 // tracing::debug!(
+                //     service="socks5",
                 //     event = "happy_eyeballs_task_failed",
                 //     error = %err,
                 // );

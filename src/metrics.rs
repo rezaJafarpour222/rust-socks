@@ -74,21 +74,3 @@ impl Metrics {
         self.dns_cache_miss.load(Ordering::Relaxed)
     }
 }
-
-pub async fn print_metrics(metrics: Arc<Metrics>) {
-    let mut timer = interval(Duration::from_secs(1));
-
-    loop {
-        timer.tick().await;
-
-        println!(
-            "Dns Cache Hits/Miss:{}/{} |Active Connections: {} | TotalConnection: {} | Total Upload: {:.2} MB/s |Total Download: {:.2} MB/s",
-            metrics.total_dns_cache_hit(),
-            metrics.total_dns_cache_miss(),
-            metrics.active_connection(),
-            metrics.total_connection(),
-            metrics.uploaded() as f64 / 1024.0 / 1024.0,
-            metrics.downloaded() as f64 / 1024.0 / 1024.0
-        );
-    }
-}
