@@ -73,9 +73,6 @@ async fn main() {
 
     // Keep the application running.
     tokio::select! {
-        // _ = metric_task => {
-        //     tracing::error!("metrics task stopped");
-        // }
 
         _ = websocket_task => {
             tracing::error!("websocket server stopped");
