@@ -1,7 +1,5 @@
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
-use std::sync::Arc;
-use tokio::time::{Duration, interval};
 pub struct Metrics {
     active_connections: AtomicUsize,
     total_connections: AtomicUsize,
