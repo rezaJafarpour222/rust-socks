@@ -18,8 +18,8 @@ use crate::metrics::Metrics;
 struct MetricsResponse {
     active_connections: usize,
     total_connections: usize,
-    bytes_uploaded: u64,
-    bytes_downloaded: u64,
+    upload_mb: f64,
+    download_mb: f64,
     dns_cache_hit: u64,
     dns_cache_miss: u64,
 }
@@ -46,6 +46,7 @@ async fn handle_socket(mut socket: WebSocket, metrics: Arc<Metrics>) {
     info!(service = "websocket", event = "client_connected");
 
     let mut timer = tokio::time::interval(Duration::from_secs(1));
+
     let mut streaming_metrics = false;
 
     loop {
@@ -128,8 +129,15 @@ async fn handle_socket(mut socket: WebSocket, metrics: Arc<Metrics>) {
                 let response = MetricsResponse {
                     active_connections: metrics.active_connection(),
                     total_connections: metrics.total_connection(),
-                    bytes_uploaded: metrics.uploaded(),
-                    bytes_downloaded: metrics.downloaded(),
+
+                    upload_mb: metrics.uploaded() as f64
+                        / 1024.0
+                        / 1024.0,
+
+                    download_mb: metrics.downloaded() as f64
+                        / 1024.0
+                        / 1024.0,
+
                     dns_cache_hit: metrics.total_dns_cache_hit(),
                     dns_cache_miss: metrics.total_dns_cache_miss(),
                 };
