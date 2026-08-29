@@ -49,8 +49,6 @@ pub async fn proxy(
 
     send_success(stream).await?;
 
-    metrics.add_connection();
-
     stream.set_nodelay(true)?;
     remote_stream.set_nodelay(true)?;
 
@@ -65,8 +63,6 @@ pub async fn proxy(
     // );
     metrics.add_uploaded(from_server);
     metrics.add_downloaded(from_client);
-
-    metrics.remove_connection();
 
     Ok(())
 }

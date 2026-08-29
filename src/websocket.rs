@@ -38,7 +38,6 @@ pub async fn run(listener: TcpListener, metrics: Arc<Metrics>) {
 
 async fn upgrade(ws: WebSocketUpgrade, State(metrics): State<Arc<Metrics>>) -> Response {
     info!(service = "websocket", event = "upgrade_request");
-
     ws.on_upgrade(move |socket| handle_socket(socket, metrics))
 }
 
@@ -155,12 +154,10 @@ async fn handle_socket(mut socket: WebSocket, metrics: Arc<Metrics>) {
                         continue;
                     }
                 };
-
                 info!(
                     service = "websocket",
                     event = "sending_metrics"
                 );
-
                 if let Err(error) = socket
                     .send(Message::Text(json.into()))
                     .await
@@ -170,7 +167,6 @@ async fn handle_socket(mut socket: WebSocket, metrics: Arc<Metrics>) {
                         event = "send_error",
                         error = %error
                     );
-
                     break;
                 }
             }

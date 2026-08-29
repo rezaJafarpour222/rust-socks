@@ -16,9 +16,11 @@ pub async fn run(listener: TcpListener, dns_cache: Arc<DnsCache>, metrics: Arc<M
             }
         };
         tokio::spawn(async move {
+            metrics.add_connection();
             if let Err(err) = proxy(&mut stream, &dns_cache, &metrics).await {
                 tracing::error!(service = "socks5", error = ?err);
             }
+            metrics.remove_connection();
         });
     }
 }
