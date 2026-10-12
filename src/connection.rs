@@ -89,6 +89,7 @@ where
         stream
             .write_all(&[constants::SOCKS5_VERSION, constants::USERNAME_PASSWORD])
             .await?;
+        stream.flush().await?;
 
         return authenticate(stream).await;
     }
@@ -96,6 +97,7 @@ where
     stream
         .write_all(&[constants::SOCKS5_VERSION, constants::NO_ACCEPTABLE_METHOD])
         .await?;
+    stream.flush().await?;
 
     Err(SocksError::NoAcceptableMethod)
 }
@@ -113,6 +115,7 @@ where
         stream
             .write_all(&[constants::AUTH_VERSION, constants::AUTH_FAILURE])
             .await?;
+        stream.flush().await?;
 
         return Err(SocksError::AuthenticationFailed);
     }
@@ -142,6 +145,7 @@ where
         stream
             .write_all(&[constants::AUTH_VERSION, constants::AUTH_SUCCESS])
             .await?;
+        stream.flush().await?;
 
         return Ok(());
     }
@@ -149,6 +153,7 @@ where
     stream
         .write_all(&[constants::AUTH_VERSION, constants::AUTH_FAILURE])
         .await?;
+    stream.flush().await?;
 
     Err(SocksError::AuthenticationFailed)
 }

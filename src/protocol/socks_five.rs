@@ -153,6 +153,7 @@ where
     S: AsyncWrite + Unpin,
 {
     stream.write_all(&SUCCESS_REPLY).await?;
+    stream.flush().await?;
 
     Ok(())
 }
@@ -175,6 +176,7 @@ where
     ];
 
     stream.write_all(&response).await?;
+    stream.flush().await?;
 
     Ok(())
 }
