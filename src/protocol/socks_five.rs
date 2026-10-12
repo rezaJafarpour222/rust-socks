@@ -1,84 +1,6 @@
-//NOTE: SOCKS5 Handshake
-//Client
-// +----+----------+----------+
-// |VER | NMETHODS | METHODS  |
-// +----+----------+----------+
-// | 1  |    1     | 1..255   |
-// +----+----------+----------+
-// 05 02 00 02 => Version 5(05),2 authentication method(02) methods:[no authentication (00),USERNAME_PASSWORD(02)]
-// -------------------------------------------------------------------------------------------------------------------
-// Server
-// +----+--------+
-// |VER | METHOD |
-// +----+--------+
-// | 1  |   1    |
-// +----+--------+
-// 05 02 => Version 5(05),USERNAME_PASSWORD authentication(02)
-
-//NOTE: SOCKS5 Authentication
-// Client
-// +----+------+----------+------+----------+
-// |VER | ULEN |  UNAME   | PLEN |  PASSWD  |
-// +----+------+----------+------+----------+
-// | 1  |  1   | 1..255   |  1   | 1..255   |
-// +----+------+----------+------+----------+
-// 01 05 alice 08 secret => auth version(01), username_length(05), username(alice), pass_length(08), password(secret)
-// -------------------------------------------------------------------------------------------------------------------
-// Server
-// +----+--------+
-// |VER | STATUS |
-// +----+--------+
-// | 1  |   1    |
-// +----+--------+
-// Success: 01 00, Failure: 01 01
-
-//NOTE:SOCKS Reqeust
-// Client
-// +----+-----+-------+------+----------+------+
-// |VER | CMD |  RSV  | ATYP | DST.ADDR | PORT |
-// +----+-----+-------+------+----------+------+
-// | 1  |  1  |  1    |  1   | Variable |  2   |
-// +----+-----+-------+------+----------+------+
-// Ver:05, ,RSV: reserved,must be 00
-// CMD:command[Connect:01]
-// ATYP:address_type(ipv4,ipv6,domain)
-// DST.ADDR:destination address
-// PORT:destination port
-// -------------------------------------------------------------------------------------------------------------------
-// Server
-// +----+-----+-------+------+----------+------+
-// |VER | REP |  RSV  | ATYP | BND.ADDR | BND.PORT |
-// +----+-----+-------+------+----------+------+
-// | 1  |  1  |  1    |  1   | Variable |  2   |
-// +----+-----+-------+------+----------+------+
-// rep:SOCKS server failue [00:succeded,01..08:errors]
-
-//NOTE:SOCKS5 ATYP Interperetation
-// ATYP = 04
-// +----+----------+
-// |ATYP| IPv6     |
-// +----+----------+
-// | 04 | 16 bytes |
-// +----+----------+
-// -------------------------------------------------------------------------------------------------------------------
-// ATYP = 01
-// +----+----------+
-// |ATYP| IPv4     |
-// +----+----------+
-// | 01 | 4 bytes  |
-// +----+----------+
-// -------------------------------------------------------------------------------------------------------------------
-// ATYP = 03
-//
-// +----+------+----------+
-// |ATYP| LEN  | DOMAIN   |
-// +----+------+----------+
-// | 03 |  1   | Variable |
-// +----+------+----------+
-
 use std::net::{Ipv4Addr, Ipv6Addr};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
+
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::protocol::constants;
 use crate::protocol::socks_error::SocksError;
@@ -96,7 +18,6 @@ pub enum Address {
 }
 
 #[derive(Debug)]
-
 pub enum AddressKind {
     Ipv4,
     Domain,
@@ -117,6 +38,7 @@ pub struct Request {
 
 fn parse_command(value: u8) -> Result<Command, SocksError> {
     const CONNECT_COMMAND: u8 = 0x01;
+
     match value {
         CONNECT_COMMAND => Ok(Command::Connect),
         value => Err(SocksError::UnsupportedCommand(value)),
@@ -129,12 +51,14 @@ fn parse_version(value: u8) -> Result<(), SocksError> {
         value => Err(SocksError::InvalidVersion(value)),
     }
 }
+
 fn parse_reserved(value: u8) -> Result<(), SocksError> {
     match value {
         constants::RESERVED => Ok(()),
         value => Err(SocksError::InvalidReserved(value)),
     }
 }
+
 fn parse_address_kind(value: u8) -> Result<AddressKind, SocksError> {
     match value {
         constants::ADDRESS_TYPE_IPV4 => Ok(AddressKind::Ipv4),
@@ -143,41 +67,66 @@ fn parse_address_kind(value: u8) -> Result<AddressKind, SocksError> {
         value => Err(SocksError::UnsupportedAddressType(value)),
     }
 }
-pub async fn read_address(
-    stream: &mut TcpStream,
-    kind: AddressKind,
-) -> Result<Address, SocksError> {
+
+pub async fn read_address<S>(stream: &mut S, kind: AddressKind) -> Result<Address, SocksError>
+where
+    S: AsyncRead + Unpin,
+{
     match kind {
         AddressKind::Ipv4 => {
             let mut bytes = [0u8; 4];
+
             stream.read_exact(&mut bytes).await?;
+
             Ok(Address::Ipv4(Ipv4Addr::from(bytes)))
         }
+
         AddressKind::Domain => {
             let mut length = [0u8; 1];
+
             stream.read_exact(&mut length).await?;
+
             let mut bytes = vec![0u8; length[0] as usize];
+
             stream.read_exact(&mut bytes).await?;
+
             let domain = String::from_utf8(bytes).map_err(|_| SocksError::InvalidDomain)?;
+
             Ok(Address::Domain(domain))
         }
+
         AddressKind::Ipv6 => {
             let mut bytes = [0u8; 16];
+
             stream.read_exact(&mut bytes).await?;
+
             Ok(Address::Ipv6(Ipv6Addr::from(bytes)))
         }
     }
 }
-pub async fn read_request(stream: &mut TcpStream) -> Result<Request, SocksError> {
+
+pub async fn read_request<S>(stream: &mut S) -> Result<Request, SocksError>
+where
+    S: AsyncRead + Unpin,
+{
     let mut header = [0u8; 4];
+
     stream.read_exact(&mut header).await?;
+
     parse_version(header[0])?;
+
     let command = parse_command(header[1])?;
+
     parse_reserved(header[2])?;
+
     let kind = parse_address_kind(header[3])?;
+
     let address = read_address(stream, kind).await?;
+
     let mut port_bytes = [0u8; 2];
+
     stream.read_exact(&mut port_bytes).await?;
+
     let port = u16::from_be_bytes(port_bytes);
 
     Ok(Request {
@@ -198,11 +147,20 @@ const SUCCESS_REPLY: [u8; 10] = [
     0x00,
     0x00,
 ];
-pub async fn send_success(stream: &mut TcpStream) -> Result<(), SocksError> {
+
+pub async fn send_success<S>(stream: &mut S) -> Result<(), SocksError>
+where
+    S: AsyncWrite + Unpin,
+{
     stream.write_all(&SUCCESS_REPLY).await?;
+
     Ok(())
 }
-pub async fn send_failure(stream: &mut TcpStream, reply: u8) -> Result<(), SocksError> {
+
+pub async fn send_failure<S>(stream: &mut S, reply: u8) -> Result<(), SocksError>
+where
+    S: AsyncWrite + Unpin,
+{
     let response = [
         constants::SOCKS5_VERSION,
         reply,
