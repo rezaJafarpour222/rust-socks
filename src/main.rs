@@ -10,7 +10,11 @@ use std::{error::Error, fs::File, io::BufReader, sync::Arc, time::Duration};
 use tokio::net::TcpListener;
 use tokio_rustls::{
     TlsAcceptor,
-    rustls::{ServerConfig, pki_types::PrivateKeyDer, version::TLS13},
+    rustls::{
+        ServerConfig,
+        pki_types::PrivateKeyDer,
+        version::{TLS12, TLS13},
+    },
 };
 
 use crate::{cache::DnsCache, metrics::Metrics};
@@ -35,7 +39,7 @@ fn create_tls_acceptor() -> Result<TlsAcceptor, Box<dyn Error + Send + Sync>> {
         .ok_or("No private key found in certs/key.pem")?;
 
     // Enable TLS 1.3 only.
-    let config = ServerConfig::builder_with_protocol_versions(&[&TLS13])
+    let config = ServerConfig::builder_with_protocol_versions(&[&TLS13, &TLS12])
         .with_no_client_auth()
         .with_single_cert(certs, key)?;
 
