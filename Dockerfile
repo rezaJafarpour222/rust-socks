@@ -5,7 +5,7 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 COPY certs ./certs
-COPY .env.example ./.env
+COPY .env.sample ./.env
 
 RUN cargo build --release
 
