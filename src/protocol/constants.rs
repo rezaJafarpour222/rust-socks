@@ -33,3 +33,7 @@ pub const REPLY_ADDRESS_TYPE_NOT_SUPPORTED: u8 = 0x08;
 // Empty reply fields
 pub const EMPTY_IPV4: [u8; 4] = [0x00; 4];
 pub const EMPTY_PORT: [u8; 2] = [0x00; 2];
+
+// SOCKS5 commands
+pub const COMMAND_CONNECT: u8 = 0x01;
+pub const COMMAND_UDP_ASSOCIATE: u8 = 0x03;

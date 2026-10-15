@@ -25,12 +25,16 @@ impl DnsCache {
     pub fn get(&self, domain: &str) -> Option<Vec<IpAddr>> {
         let now = Instant::now();
 
-        let entries = self.entries.read().unwrap();
+        {
+            let entries = self.entries.read().unwrap();
 
-        let entry = entries.get(domain)?;
-
-        if entry.expires_at > now {
-            return Some(entry.addresses.clone());
+            if let Some(entry) = entries.get(domain) {
+                if entry.expires_at > now {
+                    return Some(entry.addresses.clone());
+                }
+            } else {
+                return None;
+            }
         }
 
         let mut entries = self.entries.write().unwrap();
