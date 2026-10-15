@@ -21,6 +21,7 @@ COPY --from=builder /app/target/release/rust-socks /app/rust-socks
 COPY --from=builder /app/certs /app/certs
 COPY --from=builder /app/.env /app/.env
 
-EXPOSE 3000
+EXPOSE 3000/tcp
+EXPOSE 30853-30856/udp
 
 CMD ["/app/rust-socks"]
