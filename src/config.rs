@@ -15,11 +15,11 @@ impl AppConfig {
     pub fn from_env() -> Self {
         load_dotenv();
 
-        let socks5_port = env_or("SOCKS5_PORT", "0.0.0.0:3000");
-        let cache_duration_secs = parse_or("CACHE_DURATION_SECS", 24 * 60 * 60);
-        let cache_entry_limit = parse_or("CACHE_ENTRY_LIMIT", 10_000);
-        let cert_path = env_or("CERT_PATH", "certs/cert.pem");
-        let key_path = env_or("KEY_PATH", "certs/key.pem");
+        let socks5_port = required_env("SOCKS5_PORT");
+        let cache_duration_secs = required_parse("CACHE_DURATION_SECS");
+        let cache_entry_limit = required_parse("CACHE_ENTRY_LIMIT");
+        let cert_path = required_env("CERT_PATH");
+        let key_path = required_env("KEY_PATH");
         let proxy_username = env::var("PROXY_USERNAME").ok().filter(|s| !s.is_empty());
         let proxy_password = env::var("PROXY_PASSWORD").ok().filter(|s| !s.is_empty());
 
@@ -68,19 +68,19 @@ impl AppConfig {
     }
 }
 
-fn env_or(key: &str, default: &str) -> String {
-    env::var(key).ok().filter(|s| !s.is_empty()).unwrap_or_else(|| default.to_string())
+fn required_env(key: &str) -> String {
+    match env::var(key) {
+        Ok(value) if !value.trim().is_empty() => value,
+        _ => panic!("{key} must be set"),
+    }
 }
 
-fn parse_or<T>(key: &str, default: T) -> T
+fn required_parse<T>(key: &str) -> T
 where
     T: std::str::FromStr,
 {
-    env::var(key)
-        .ok()
-        .filter(|s| !s.is_empty())
-        .and_then(|value| value.parse().ok())
-        .unwrap_or(default)
+    let value = required_env(key);
+    value.parse().unwrap_or_else(|_| panic!("{key} must be a valid number"))
 }
 
 pub fn load_dotenv() {

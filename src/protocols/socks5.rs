@@ -1,7 +1,4 @@
-use std::{
-    future::Future,
-    pin::Pin,
-};
+use std::{future::Future, pin::Pin};
 
 use tokio::{
     io::{
@@ -14,12 +11,14 @@ use crate::{
     cache::DnsCache,
     context::ProxyContext,
     error::ProxyError,
-    protocols::{ClientStream, ProxyProtocol},
     protocol::{
         constants,
         socks_error::SocksError,
-        socks_five::{self, Address, Command, Destination, read_request, send_failure, send_success},
+        socks_five::{
+            self, Address, Command, Destination, read_request, send_failure, send_success,
+        },
     },
+    protocols::{ClientStream, ProxyProtocol},
 };
 
 const BUFFER_SIZE: usize = 64 * 1024;
@@ -49,10 +48,7 @@ impl ProxyProtocol for Socks5Protocol {
     }
 }
 
-pub async fn proxy<S>(
-    stream: &mut S,
-    dns_cache: &DnsCache,
-) -> Result<(), SocksError>
+pub async fn proxy<S>(stream: &mut S, dns_cache: &DnsCache) -> Result<(), SocksError>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
@@ -62,7 +58,11 @@ where
 
     match request.command {
         Command::Connect => {
-            tracing::debug!(service = "socks5", connection_type = "connect", "connection started");
+            tracing::debug!(
+                service = "socks5",
+                connection_type = "connect",
+                "connection started"
+            );
             let mut remote_stream =
                 match crate::connect::connect_destination(&request.destination, dns_cache).await {
                     Ok(stream) => stream,
@@ -86,7 +86,11 @@ where
             Ok(())
         }
         Command::UdpAssociate => {
-            tracing::debug!(service = "socks5", connection_type = "udp_associate", "connection started");
+            tracing::debug!(
+                service = "socks5",
+                connection_type = "udp_associate",
+                "connection started"
+            );
             udp_associate(stream, &request, dns_cache).await
         }
     }
@@ -184,13 +188,12 @@ where
 }
 
 pub fn check_user(username: &str, password: &str) -> bool {
-    if let (Ok(expected_user), Ok(expected_pass)) =
-        (std::env::var("PROXY_USERNAME"), std::env::var("PROXY_PASSWORD"))
-    {
-        return username == expected_user && password == expected_pass;
+    match (std::env::var("PROXY_USERNAME"), std::env::var("PROXY_PASSWORD")) {
+        (Ok(expected_user), Ok(expected_pass)) => {
+            username == expected_user && password == expected_pass
+        }
+        _ => false,
     }
-
-    username == "reza" && password == "SDSEWwew4SckkjSA_%"
 }
 
 async fn udp_associate<S>(
@@ -262,14 +265,14 @@ where
     Ok(())
 }
 
-
 async fn resolve_udp_destination(
     destination: &Destination,
     dns_cache: &DnsCache,
 ) -> Result<std::net::SocketAddr, SocksError> {
     match &destination.address {
         Address::Domain(domain) => {
-            let addresses = crate::connect::dns_lookup(domain.as_str(), destination.port, dns_cache).await?;
+            let addresses =
+                crate::connect::dns_lookup(domain.as_str(), destination.port, dns_cache).await?;
 
             let ip = addresses
                 .into_iter()
