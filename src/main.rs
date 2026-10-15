@@ -1,8 +1,8 @@
 pub mod cache;
+pub mod config;
 pub mod connect;
 pub mod context;
 pub mod error;
-pub mod metrics;
 pub mod protocol;
 pub mod protocols;
 pub mod server;
@@ -19,17 +19,16 @@ use tokio_rustls::{
     },
 };
 
-use crate::{cache::DnsCache, metrics::Metrics};
+use crate::{cache::DnsCache, config::AppConfig};
 
-const CACHE_DURATION: u64 = 24 * 60 * 60;
-const CACHE_ENTRY_LIMIT: usize = 10_000;
-const SOCKS5_PORT: &str = "0.0.0.0:3000";
-
-fn create_tls_acceptor() -> Result<TlsAcceptor, Box<dyn Error + Send + Sync>> {
+fn create_tls_acceptor(
+    cert_path: &str,
+    key_path: &str,
+) -> Result<TlsAcceptor, Box<dyn Error + Send + Sync>> {
     let _ = tokio_rustls::rustls::crypto::ring::default_provider().install_default();
 
-    let cert_file = File::open("certs/cert.pem")?;
-    let key_file = File::open("certs/key.pem")?;
+    let cert_file = File::open(cert_path)?;
+    let key_file = File::open(key_path)?;
 
     let certs =
         rustls_pemfile::certs(&mut BufReader::new(cert_file)).collect::<Result<Vec<_>, _>>()?;
@@ -56,31 +55,32 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     tracing_subscriber::fmt().with_env_filter(env_filter).init();
 
+    let config = AppConfig::from_env();
+    config.apply_credentials_to_env();
+
     let dns_cache = Arc::new(DnsCache::new(
-        Duration::from_secs(CACHE_DURATION),
-        CACHE_ENTRY_LIMIT,
+        Duration::from_secs(config.cache_duration_secs),
+        config.cache_entry_limit,
     ));
 
-    let metrics = Arc::new(Metrics::new());
-
     // Load the certificate and private key before accepting connections.
-    let acceptor = create_tls_acceptor()?;
+    let acceptor = create_tls_acceptor(&config.cert_path, &config.key_path)?;
 
     // TLS-wrapped SOCKS5 server.
-    let socks5_listener = TcpListener::bind(SOCKS5_PORT).await?;
+    let socks5_listener = TcpListener::bind(&config.socks5_port).await?;
 
     let socks5_task = {
         let dns_cache = Arc::clone(&dns_cache);
-        let metrics = Arc::clone(&metrics);
+        let port = config.socks5_port.clone();
 
         tokio::spawn(async move {
             tracing::info!(
                 service = "socks5",
                 event = "tls_server_started",
-                port = SOCKS5_PORT
+                port = %port
             );
 
-            server::run(socks5_listener, acceptor, dns_cache, metrics).await;
+            server::run(socks5_listener, acceptor, dns_cache).await;
         })
     };
 

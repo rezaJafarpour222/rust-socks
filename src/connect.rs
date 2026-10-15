@@ -12,7 +12,6 @@ use tokio::{
 
 use crate::{
     cache::DnsCache,
-    metrics::Metrics,
     protocol::socks_five::{Address, Destination},
 };
 
@@ -22,11 +21,10 @@ pub const HAPPY_EYEBALLS_DELAY: Duration = Duration::from_millis(50);
 pub async fn connect_destination(
     destination: &Destination,
     dns_cache: &DnsCache,
-    metrics: &Metrics,
 ) -> Result<TcpStream, crate::protocol::socks_error::SocksError> {
     match &destination.address {
         Address::Domain(domain) => {
-            let addresses = dns_lookup(domain, destination.port, dns_cache, metrics).await?;
+            let addresses = dns_lookup(domain, destination.port, dns_cache).await?;
 
             happy_eyeballs(addresses, destination.port).await
         }
@@ -59,17 +57,11 @@ pub async fn dns_lookup(
     domain: &str,
     port: u16,
     dns_cache: &DnsCache,
-    metrics: &Metrics,
 ) -> Result<Vec<IpAddr>, Error> {
     let addresses = match dns_cache.get(domain) {
-        Some(addresses) => {
-            metrics.add_dns_cache_hit();
-            addresses
-        }
+        Some(addresses) => addresses,
 
         None => {
-            metrics.add_dns_cache_miss();
-
             let addresses: Vec<IpAddr> = lookup_host((domain, port))
                 .await?
                 .map(|address| address.ip())

@@ -7,7 +7,6 @@ use tokio_rustls::TlsAcceptor;
 use crate::{
     cache::DnsCache,
     context::ProxyContext,
-    metrics::Metrics,
     protocols::{ClientStream, ProtocolRegistry, ProxyProtocol},
 };
 
@@ -15,7 +14,6 @@ pub async fn run(
     listener: TcpListener,
     acceptor: TlsAcceptor,
     dns_cache: Arc<DnsCache>,
-    metrics: Arc<Metrics>,
 ) {
     let registry = std::sync::Arc::new(ProtocolRegistry::default_registry());
 
@@ -30,7 +28,6 @@ pub async fn run(
 
         let acceptor = acceptor.clone();
         let dns_cache = Arc::clone(&dns_cache);
-        let metrics = Arc::clone(&metrics);
         let registry = std::sync::Arc::clone(&registry);
 
         tokio::spawn(async move {
@@ -60,11 +57,8 @@ pub async fn run(
                 }
             };
 
-            metrics.add_connection();
-
             let ctx = ProxyContext {
                 dns_cache: Arc::clone(&dns_cache),
-                metrics: Arc::clone(&metrics),
             };
 
             let mut stream: ClientStream = tokio::io::BufReader::new(tls_stream);
@@ -74,13 +68,11 @@ pub async fn run(
                     Ok(peek) => peek,
                     Err(err) => {
                         tracing::warn!(peer = %peer_addr, error = ?err, "peek failed");
-                        metrics.remove_connection();
                         return;
                     }
                 };
 
                 if peek.is_empty() {
-                    metrics.remove_connection();
                     return;
                 }
 
@@ -93,15 +85,12 @@ pub async fn run(
                             peer = %peer_addr,
                             prefix = ?&peek[..peek.len().min(8)]
                         );
-                        metrics.remove_connection();
                         return;
                     }
                 }
             };
 
             let result = protocol.handle(&mut stream, ctx).await;
-
-            metrics.remove_connection();
 
             if let Err(err) = result {
                 tracing::warn!(
@@ -116,15 +105,11 @@ pub async fn run(
 }
 
 /// Runs one protocol on its own TLS-wrapped endpoint.
-///
-/// This is intended for protocols that do not share an endpoint with SOCKS5,
-/// while still using the same proxy protocol abstraction and shared context.
 pub async fn run_protocol<P>(
     listener: TcpListener,
     acceptor: TlsAcceptor,
     protocol: std::sync::Arc<P>,
     dns_cache: std::sync::Arc<DnsCache>,
-    metrics: std::sync::Arc<Metrics>,
 ) where
     P: ProxyProtocol + 'static,
 {
@@ -140,7 +125,6 @@ pub async fn run_protocol<P>(
         let acceptor = acceptor.clone();
         let protocol = std::sync::Arc::clone(&protocol);
         let dns_cache = std::sync::Arc::clone(&dns_cache);
-        let metrics = std::sync::Arc::clone(&metrics);
 
         tokio::spawn(async move {
             let tls_stream = match tokio::time::timeout(
@@ -160,18 +144,13 @@ pub async fn run_protocol<P>(
                 }
             };
 
-            metrics.add_connection();
-
             let ctx = ProxyContext {
                 dns_cache: std::sync::Arc::clone(&dns_cache),
-                metrics: std::sync::Arc::clone(&metrics),
             };
 
             let mut stream: ClientStream = tokio::io::BufReader::new(tls_stream);
 
             let result = protocol.handle(&mut stream, ctx).await;
-
-            metrics.remove_connection();
 
             if let Err(err) = result {
                 tracing::warn!(

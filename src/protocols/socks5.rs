@@ -14,7 +14,6 @@ use crate::{
     cache::DnsCache,
     context::ProxyContext,
     error::ProxyError,
-    metrics::Metrics,
     protocols::{ClientStream, ProxyProtocol},
     protocol::{
         constants,
@@ -43,7 +42,7 @@ impl ProxyProtocol for Socks5Protocol {
         ctx: ProxyContext,
     ) -> Pin<Box<dyn Future<Output = Result<(), ProxyError>> + Send + 'a>> {
         Box::pin(async move {
-            proxy(stream, ctx.dns_cache.as_ref(), ctx.metrics.as_ref())
+            proxy(stream, ctx.dns_cache.as_ref())
                 .await
                 .map_err(Into::into)
         })
@@ -53,7 +52,6 @@ impl ProxyProtocol for Socks5Protocol {
 pub async fn proxy<S>(
     stream: &mut S,
     dns_cache: &DnsCache,
-    metrics: &Metrics,
 ) -> Result<(), SocksError>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -66,7 +64,7 @@ where
         Command::Connect => {
             tracing::debug!(service = "socks5", connection_type = "connect", "connection started");
             let mut remote_stream =
-                match crate::connect::connect_destination(&request.destination, dns_cache, metrics).await {
+                match crate::connect::connect_destination(&request.destination, dns_cache).await {
                     Ok(stream) => stream,
                     Err(err) => {
                         tracing::error!(service = "socks5", error = ?err);
@@ -81,18 +79,15 @@ where
 
             remote_stream.set_nodelay(true)?;
 
-            let (from_client, from_server) =
+            let (_from_client, _from_server) =
                 copy_bidirectional_with_sizes(stream, &mut remote_stream, BUFFER_SIZE, BUFFER_SIZE)
                     .await?;
-
-            metrics.add_uploaded(from_client);
-            metrics.add_downloaded(from_server);
 
             Ok(())
         }
         Command::UdpAssociate => {
             tracing::debug!(service = "socks5", connection_type = "udp_associate", "connection started");
-            udp_associate(stream, &request, dns_cache, metrics).await
+            udp_associate(stream, &request, dns_cache).await
         }
     }
 }
@@ -202,7 +197,6 @@ async fn udp_associate<S>(
     stream: &mut S,
     _request: &crate::protocol::socks_five::Request,
     dns_cache: &DnsCache,
-    metrics: &Metrics,
 ) -> Result<(), SocksError>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -251,19 +245,15 @@ where
 
                     let payload = &buffer[packet.payload_offset..received];
 
-                    let destination = match resolve_udp_destination(&packet.destination, dns_cache, metrics).await {
+                    let destination = match resolve_udp_destination(&packet.destination, dns_cache).await {
                         Ok(destination) => destination,
                         Err(_) => continue,
                     };
 
-                    if socket.send_to(payload, destination).await.is_ok() {
-                        metrics.add_uploaded(payload.len() as u64);
-                    }
+                    if socket.send_to(payload, destination).await.is_ok() {}
                 } else {
                     let relayed = socks_five::build_udp_response(source, &buffer[..received]);
-                    if socket.send_to(&relayed, client_addr).await.is_ok() {
-                        metrics.add_downloaded(received as u64);
-                    }
+                    let _ = socket.send_to(&relayed, client_addr).await;
                 }
             }
         }
@@ -276,11 +266,10 @@ where
 async fn resolve_udp_destination(
     destination: &Destination,
     dns_cache: &DnsCache,
-    metrics: &Metrics,
 ) -> Result<std::net::SocketAddr, SocksError> {
     match &destination.address {
         Address::Domain(domain) => {
-            let addresses = crate::connect::dns_lookup(domain.as_str(), destination.port, dns_cache, metrics).await?;
+            let addresses = crate::connect::dns_lookup(domain.as_str(), destination.port, dns_cache).await?;
 
             let ip = addresses
                 .into_iter()
