@@ -41,14 +41,24 @@ impl ProxyProtocol for Socks5Protocol {
         ctx: ProxyContext,
     ) -> Pin<Box<dyn Future<Output = Result<(), ProxyError>> + Send + 'a>> {
         Box::pin(async move {
-            proxy(stream, ctx.dns_cache.as_ref())
-                .await
-                .map_err(Into::into)
+            proxy(
+                stream,
+                ctx.dns_cache.as_ref(),
+                ctx.udp_relay_ports.clone(),
+                ctx.udp_relay_host.as_deref(),
+            )
+            .await
+            .map_err(Into::into)
         })
     }
 }
 
-pub async fn proxy<S>(stream: &mut S, dns_cache: &DnsCache) -> Result<(), SocksError>
+pub async fn proxy<S>(
+    stream: &mut S,
+    dns_cache: &DnsCache,
+    udp_relay_ports: std::sync::Arc<std::sync::Mutex<Vec<u16>>>,
+    udp_relay_host: Option<&str>,
+) -> Result<(), SocksError>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
@@ -91,7 +101,7 @@ where
                 connection_type = "udp_associate",
                 "connection started"
             );
-            udp_associate(stream, &request, dns_cache).await
+            udp_associate(stream, &request, dns_cache, udp_relay_ports, udp_relay_host).await
         }
     }
 }
@@ -196,18 +206,66 @@ pub fn check_user(username: &str, password: &str) -> bool {
     }
 }
 
+struct UdpPortGuard {
+    ports: std::sync::Arc<std::sync::Mutex<Vec<u16>>>,
+    port: Option<u16>,
+}
+
+impl Drop for UdpPortGuard {
+    fn drop(&mut self) {
+        if let Some(port) = self.port {
+            if let Ok(mut ports) = self.ports.lock() {
+                ports.push(port);
+            }
+        }
+    }
+}
+
 async fn udp_associate<S>(
     stream: &mut S,
     _request: &crate::protocol::socks_five::Request,
     dns_cache: &DnsCache,
+    udp_relay_ports: std::sync::Arc<std::sync::Mutex<Vec<u16>>>,
+    udp_relay_host: Option<&str>,
 ) -> Result<(), SocksError>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    let socket = UdpSocket::bind(std::net::SocketAddr::from(([0, 0, 0, 0], 0))).await?;
+    let allocated_port = {
+        let mut ports = udp_relay_ports
+            .lock()
+            .map_err(|_| SocksError::ConnectFailed)?;
+        ports.pop()
+    };
+
+    let guard = UdpPortGuard {
+        ports: udp_relay_ports.clone(),
+        port: allocated_port,
+    };
+
+    let reserved_port = guard.port;
+    let socket = if let Some(port) = reserved_port {
+        UdpSocket::bind(std::net::SocketAddr::from(([0, 0, 0, 0], port))).await?
+    } else {
+        UdpSocket::bind(std::net::SocketAddr::from(([0, 0, 0, 0], 0))).await?
+    };
 
     let local_port = socket.local_addr()?.port();
-    let bind_addr = std::net::SocketAddr::new(crate::connect::detect_local_ip().await, local_port);
+    let advertised_ip = if let Some(host) = udp_relay_host {
+        match host.parse() {
+            Ok(ip) => ip,
+            Err(_) => crate::connect::detect_local_ip().await,
+        }
+    } else {
+        crate::connect::detect_local_ip().await
+    };
+    let bind_addr = std::net::SocketAddr::new(advertised_ip, local_port);
+
+    tracing::info!(
+        service = "socks5",
+        event = "udp_relay_ready",
+        advertised = %bind_addr
+    );
 
     socks_five::send_udp_success(stream, bind_addr).await?;
     stream.flush().await?;
@@ -229,6 +287,7 @@ where
                 let (received, source) = receive_result?;
 
                 if client.is_none() {
+                    tracing::info!(service = "socks5", event = "udp_client_registered", client = %source);
                     client = Some(source);
                 }
 
@@ -253,15 +312,20 @@ where
                         Err(_) => continue,
                     };
 
-                    if socket.send_to(payload, destination).await.is_ok() {}
+                    if let Err(error) = socket.send_to(payload, destination).await {
+                        tracing::warn!(service = "socks5", event = "udp_upstream_send_failed", error = %error);
+                    }
                 } else {
                     let relayed = socks_five::build_udp_response(source, &buffer[..received]);
-                    let _ = socket.send_to(&relayed, client_addr).await;
+                    if let Err(error) = socket.send_to(&relayed, client_addr).await {
+                        tracing::warn!(service = "socks5", event = "udp_downstream_send_failed", client = %client_addr, error = %error);
+                    }
                 }
             }
         }
     }
 
+    drop(guard);
     Ok(())
 }
 

@@ -9,6 +9,9 @@ pub struct AppConfig {
     pub key_path: String,
     pub proxy_username: Option<String>,
     pub proxy_password: Option<String>,
+    pub udp_relay_host: Option<String>,
+    pub udp_relay_port_start: u16,
+    pub udp_relay_port_count: usize,
 }
 
 impl AppConfig {
@@ -22,6 +25,15 @@ impl AppConfig {
         let key_path = required_env("KEY_PATH");
         let proxy_username = env::var("PROXY_USERNAME").ok().filter(|s| !s.is_empty());
         let proxy_password = env::var("PROXY_PASSWORD").ok().filter(|s| !s.is_empty());
+        let udp_relay_host = env::var("UDP_RELAY_HOST").ok().filter(|s| !s.is_empty());
+        let udp_relay_port_start = env::var("UDP_RELAY_PORT_START")
+            .ok()
+            .and_then(|value| value.parse::<u16>().ok())
+            .unwrap_or(0);
+        let udp_relay_port_count = env::var("UDP_RELAY_PORT_COUNT")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(0);
 
         let config = Self {
             socks5_port,
@@ -31,6 +43,9 @@ impl AppConfig {
             key_path,
             proxy_username,
             proxy_password,
+            udp_relay_host,
+            udp_relay_port_start,
+            udp_relay_port_count,
         };
 
         config.validate();
@@ -44,6 +59,19 @@ impl AppConfig {
         }
     }
 
+    pub fn udp_relay_ports(&self) -> Vec<u16> {
+        if self.udp_relay_port_count == 0 {
+            return Vec::new();
+        }
+
+        (0..self.udp_relay_port_count)
+            .filter_map(|offset| {
+                self.udp_relay_port_start
+                    .checked_add(offset as u16)
+            })
+            .collect()
+    }
+
     fn validate(&self) {
         if self.socks5_port.is_empty() {
             panic!("SOCKS5_PORT must not be empty");
@@ -55,6 +83,10 @@ impl AppConfig {
 
         if self.proxy_username.is_some() != self.proxy_password.is_some() {
             panic!("PROXY_USERNAME and PROXY_PASSWORD must be set together");
+        }
+
+        if self.udp_relay_port_count > 0 && self.udp_relay_port_start == 0 {
+            panic!("UDP_RELAY_PORT_START must be set when UDP_RELAY_PORT_COUNT is greater than zero");
         }
     }
 

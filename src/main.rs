@@ -19,7 +19,7 @@ use tokio_rustls::{
     },
 };
 
-use crate::{cache::DnsCache, config::AppConfig};
+use crate::{cache::DnsCache, config::AppConfig, context::ProxyContext};
 
 fn create_tls_acceptor(
     cert_path: &str,
@@ -67,11 +67,34 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let acceptor = create_tls_acceptor(&config.cert_path, &config.key_path)?;
 
     // TLS-wrapped SOCKS5 server.
+    let udp_relay_ports = config.udp_relay_ports();
+    let udp_relay_pool = Arc::new(std::sync::Mutex::new(udp_relay_ports.clone()));
+
+    if !udp_relay_ports.is_empty() {
+        tracing::info!(
+            service = "socks5",
+            event = "udp_relay_ports_ready",
+            ports = ?udp_relay_ports
+        );
+    } else {
+        tracing::warn!(
+            service = "socks5",
+            event = "udp_relay_disabled",
+            "No UDP relay ports configured"
+        );
+    }
+
+    let context = ProxyContext {
+        dns_cache: Arc::clone(&dns_cache),
+        udp_relay_ports: Arc::clone(&udp_relay_pool),
+        udp_relay_host: config.udp_relay_host.clone(),
+    };
+
     let socks5_listener = TcpListener::bind(&config.socks5_port).await?;
 
     let socks5_task = {
-        let dns_cache = Arc::clone(&dns_cache);
         let port = config.socks5_port.clone();
+        let context = context.clone();
 
         tokio::spawn(async move {
             tracing::info!(
@@ -80,7 +103,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 port = %port
             );
 
-            server::run(socks5_listener, acceptor, dns_cache).await;
+            server::run(socks5_listener, acceptor, context).await;
         })
     };
 
