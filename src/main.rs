@@ -26,6 +26,8 @@ const CACHE_ENTRY_LIMIT: usize = 10_000;
 const SOCKS5_PORT: &str = "0.0.0.0:3000";
 
 fn create_tls_acceptor() -> Result<TlsAcceptor, Box<dyn Error + Send + Sync>> {
+    let _ = tokio_rustls::rustls::crypto::ring::default_provider().install_default();
+
     let cert_file = File::open("certs/cert.pem")?;
     let key_file = File::open("certs/key.pem")?;
 
