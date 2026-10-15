@@ -1,8 +1,11 @@
 pub mod cache;
-pub mod connection;
+pub mod connect;
+pub mod context;
+pub mod error;
 pub mod metrics;
 pub mod protocol;
-pub mod socsk5;
+pub mod protocols;
+pub mod server;
 pub mod websocket;
 
 use std::{error::Error, fs::File, io::BufReader, sync::Arc, time::Duration};
@@ -94,7 +97,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 port = SOCKS5_PORT
             );
 
-            socsk5::run(socks5_listener, acceptor, dns_cache, metrics).await;
+            server::run(socks5_listener, acceptor, dns_cache, metrics).await;
         })
     };
 
