@@ -6,7 +6,6 @@ pub mod metrics;
 pub mod protocol;
 pub mod protocols;
 pub mod server;
-pub mod websocket;
 
 use std::{error::Error, fs::File, io::BufReader, sync::Arc, time::Duration};
 
@@ -24,7 +23,6 @@ use crate::{cache::DnsCache, metrics::Metrics};
 
 const CACHE_DURATION: u64 = 24 * 60 * 60;
 const CACHE_ENTRY_LIMIT: usize = 10_000;
-const WEBSOCKET_PORT: &str = "0.0.0.0:3001";
 const SOCKS5_PORT: &str = "0.0.0.0:3000";
 
 fn create_tls_acceptor() -> Result<TlsAcceptor, Box<dyn Error + Send + Sync>> {
@@ -66,23 +64,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     // Load the certificate and private key before accepting connections.
     let acceptor = create_tls_acceptor()?;
 
-    // WebSocket server remains unchanged.
-    let websocket_listener = TcpListener::bind(WEBSOCKET_PORT).await?;
-
-    let websocket_task = {
-        let metrics = Arc::clone(&metrics);
-
-        tokio::spawn(async move {
-            tracing::info!(
-                service = "websocket",
-                event = "server_started",
-                port = WEBSOCKET_PORT
-            );
-
-            websocket::run(websocket_listener, metrics).await;
-        })
-    };
-
     // TLS-wrapped SOCKS5 server.
     let socks5_listener = TcpListener::bind(SOCKS5_PORT).await?;
 
@@ -101,21 +82,10 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         })
     };
 
-    tokio::select! {
-        result = websocket_task => {
-            tracing::error!(
-                service = "websocket",
-                result = ?result,
-                "WebSocket task stopped"
-            );
-        }
-        result = socks5_task => {
-            tracing::error!(
-                service = "socks5",
-                result = ?result,
-                "SOCKS5 task stopped"
-            );
-        }
+    let result = socks5_task.await;
+
+    if let Err(err) = result {
+        tracing::error!(service = "socks5", result = ?err, "SOCKS5 task stopped");
     }
 
     Ok(())
