@@ -67,14 +67,23 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let acceptor = create_tls_acceptor(&config.cert_path, &config.key_path)?;
 
     // TLS-wrapped SOCKS5 server.
-    let udp_relay_ports = config.udp_relay_ports();
-    let udp_relay_pool = Arc::new(std::sync::Mutex::new(udp_relay_ports.clone()));
+    let udp_relay_bind_ports = config.udp_relay_bind_ports();
+    let udp_relay_public_ports = config.udp_relay_public_ports();
+    let udp_relay_pool = Arc::new(std::sync::Mutex::new(udp_relay_bind_ports.clone()));
+    let udp_relay_port_map: std::collections::HashMap<u16, u16> =
+        udp_relay_bind_ports
+            .iter()
+            .copied()
+            .zip(udp_relay_public_ports.iter().copied())
+            .collect();
+    let udp_relay_port_map = Arc::new(udp_relay_port_map);
 
-    if !udp_relay_ports.is_empty() {
+    if !udp_relay_bind_ports.is_empty() {
         tracing::info!(
             service = "socks5",
             event = "udp_relay_ports_ready",
-            ports = ?udp_relay_ports
+            bind_ports = ?udp_relay_bind_ports,
+            public_ports = ?udp_relay_public_ports
         );
     } else {
         tracing::warn!(
@@ -87,6 +96,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let context = ProxyContext {
         dns_cache: Arc::clone(&dns_cache),
         udp_relay_ports: Arc::clone(&udp_relay_pool),
+        udp_relay_port_map: Arc::clone(&udp_relay_port_map),
         udp_relay_host: config.udp_relay_host.clone(),
     };
 

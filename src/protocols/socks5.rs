@@ -45,6 +45,7 @@ impl ProxyProtocol for Socks5Protocol {
                 stream,
                 ctx.dns_cache.as_ref(),
                 ctx.udp_relay_ports.clone(),
+                ctx.udp_relay_port_map.clone(),
                 ctx.udp_relay_host.as_deref(),
             )
             .await
@@ -57,6 +58,7 @@ pub async fn proxy<S>(
     stream: &mut S,
     dns_cache: &DnsCache,
     udp_relay_ports: std::sync::Arc<std::sync::Mutex<Vec<u16>>>,
+    udp_relay_port_map: std::sync::Arc<std::collections::HashMap<u16, u16>>,
     udp_relay_host: Option<&str>,
 ) -> Result<(), SocksError>
 where
@@ -101,7 +103,7 @@ where
                 connection_type = "udp_associate",
                 "connection started"
             );
-            udp_associate(stream, &request, dns_cache, udp_relay_ports, udp_relay_host).await
+            udp_associate(stream, &request, dns_cache, udp_relay_ports, udp_relay_port_map, udp_relay_host).await
         }
     }
 }
@@ -226,6 +228,7 @@ async fn udp_associate<S>(
     _request: &crate::protocol::socks_five::Request,
     dns_cache: &DnsCache,
     udp_relay_ports: std::sync::Arc<std::sync::Mutex<Vec<u16>>>,
+    udp_relay_port_map: std::sync::Arc<std::collections::HashMap<u16, u16>>,
     udp_relay_host: Option<&str>,
 ) -> Result<(), SocksError>
 where
@@ -251,6 +254,10 @@ where
     };
 
     let local_port = socket.local_addr()?.port();
+    let advertised_port = udp_relay_port_map
+        .get(&local_port)
+        .copied()
+        .unwrap_or(local_port);
     let advertised_ip = if let Some(host) = udp_relay_host {
         match host.parse() {
             Ok(ip) => ip,
@@ -259,7 +266,7 @@ where
     } else {
         crate::connect::detect_local_ip().await
     };
-    let bind_addr = std::net::SocketAddr::new(advertised_ip, local_port);
+    let bind_addr = std::net::SocketAddr::new(advertised_ip, advertised_port);
 
     tracing::info!(
         service = "socks5",

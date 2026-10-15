@@ -12,6 +12,8 @@ pub struct AppConfig {
     pub udp_relay_host: Option<String>,
     pub udp_relay_port_start: u16,
     pub udp_relay_port_count: usize,
+    pub udp_relay_bind_ports: Vec<u16>,
+    pub udp_relay_public_ports: Vec<u16>,
 }
 
 impl AppConfig {
@@ -34,6 +36,8 @@ impl AppConfig {
             .ok()
             .and_then(|value| value.parse::<usize>().ok())
             .unwrap_or(0);
+        let udp_relay_bind_ports = parse_port_list("UDP_RELAY_BIND_PORTS");
+        let udp_relay_public_ports = parse_port_list("UDP_RELAY_PUBLIC_PORTS");
 
         let config = Self {
             socks5_port,
@@ -46,6 +50,8 @@ impl AppConfig {
             udp_relay_host,
             udp_relay_port_start,
             udp_relay_port_count,
+            udp_relay_bind_ports,
+            udp_relay_public_ports,
         };
 
         config.validate();
@@ -60,6 +66,14 @@ impl AppConfig {
     }
 
     pub fn udp_relay_ports(&self) -> Vec<u16> {
+        self.udp_relay_bind_ports()
+    }
+
+    pub fn udp_relay_bind_ports(&self) -> Vec<u16> {
+        if !self.udp_relay_bind_ports.is_empty() {
+            return self.udp_relay_bind_ports.clone();
+        }
+
         if self.udp_relay_port_count == 0 {
             return Vec::new();
         }
@@ -70,6 +84,14 @@ impl AppConfig {
                     .checked_add(offset as u16)
             })
             .collect()
+    }
+
+    pub fn udp_relay_public_ports(&self) -> Vec<u16> {
+        if !self.udp_relay_public_ports.is_empty() {
+            return self.udp_relay_public_ports.clone();
+        }
+
+        self.udp_relay_bind_ports()
     }
 
     fn validate(&self) {
@@ -88,6 +110,15 @@ impl AppConfig {
         if self.udp_relay_port_count > 0 && self.udp_relay_port_start == 0 {
             panic!("UDP_RELAY_PORT_START must be set when UDP_RELAY_PORT_COUNT is greater than zero");
         }
+
+        let bind_ports = self.udp_relay_bind_ports();
+        let public_ports = self.udp_relay_public_ports();
+        if !bind_ports.is_empty()
+            && !public_ports.is_empty()
+            && bind_ports.len() != public_ports.len()
+        {
+            panic!("UDP_RELAY_BIND_PORTS and UDP_RELAY_PUBLIC_PORTS must have the same length");
+        }
     }
 
     pub fn apply_credentials_to_env(&self) {
@@ -104,6 +135,16 @@ fn required_env(key: &str) -> String {
     match env::var(key) {
         Ok(value) if !value.trim().is_empty() => value,
         _ => panic!("{key} must be set"),
+    }
+}
+
+fn parse_port_list(key: &str) -> Vec<u16> {
+    match std::env::var(key) {
+        Ok(value) if !value.trim().is_empty() => value
+            .split(',')
+            .filter_map(|part| part.trim().parse::<u16>().ok())
+            .collect(),
+        _ => Vec::new(),
     }
 }
 

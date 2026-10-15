@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use crate::cache::DnsCache;
@@ -6,5 +7,6 @@ use crate::cache::DnsCache;
 pub struct ProxyContext {
     pub dns_cache: Arc<DnsCache>,
     pub udp_relay_ports: Arc<Mutex<Vec<u16>>>,
+    pub udp_relay_port_map: Arc<HashMap<u16, u16>>,
     pub udp_relay_host: Option<String>,
 }
